@@ -143,7 +143,7 @@ def main(savePathArg=None):
 		fig, ax = plt.subplots(figsize=(9, 9))
 		plotDemos(ax, demos, title)
 		plt.tight_layout()
-		savePath = os.path.join(scriptDir, fname)
+		savePath = os.path.join(scriptDir, 'rolloutPlots', fname)
 		plt.savefig(savePath, dpi=150, bbox_inches='tight')
 		print(f"\nFigure saved to {savePath}")
 		plt.close(fig)
