@@ -68,16 +68,25 @@ def main():
 	device = 'cuda' if torch.cuda.is_available() else 'cpu'
 	print(f'method: {args.method}  device: {device}')
 
+	# read in pre-generated preference data
 	prefPath = os.path.join(scriptDir, 'data', 'preferences.pkl')
 	with open(prefPath, 'rb') as f:
 		prefData = pickle.load(f)
 	print(f'loaded {len(prefData)} preference pairs')
 
+	# initialize environment
 	env    = PointBot()
 	obsDim = env.observation_space.shape[0]
 	actDim = env.action_space.shape[0]
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
+
+	# TODO generate pAOT pairings (no matter which method is being trained)
+
+	# TODO generate uAOT pairings (no matter which method is being trained)
+
+
+	# train using pure BC
 	if args.method == 'bc':
 		policy = trainBC(
 			policy, prefData,
@@ -87,9 +96,18 @@ def main():
 			device      = device,
 			logInterval = cfg['log_interval'],
 		)
-	else:
-		raise NotImplementedError(f'{args.method} not yet implemented')
+	# TODO train CPL policy
 
+	# TODO train CPL policy with beta regularization
+
+	# TODO train cpl_paot policy
+
+	# TODO train cpl_uaot policy
+
+	else:
+		raise NotImplementedError(f'{args.method} is not implemented')
+
+	# generate rollouts
 	nRollouts = cfg.get('eval_rollouts', 10)
 	rollouts, evalStats = [], []
 	print(f'\n--- evaluation ({nRollouts} rollouts) ---')
@@ -101,6 +119,13 @@ def main():
 			{'Good_states': traj['states'], 'Good_actions': traj['actions']}))
 		evalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
 
+		# TODO evaluate all policy on:
+			# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
+			# Secondary: preference accuracy on original annotator pairs
+			# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
+
+
+	# save results to disk
 	modelsDir = os.path.join(scriptDir, 'models')
 	runDir    = getRunDir(modelsDir, args.method)
 	saveResults(runDir, policy, evalStats, rollouts, args.method)
@@ -108,3 +133,6 @@ def main():
 
 
 main()
+
+
+

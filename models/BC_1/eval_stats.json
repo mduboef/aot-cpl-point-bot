@@ -1,0 +1,62 @@
+[
+  {
+    "rollout": 0,
+    "steps": 81,
+    "obs_steps": 4,
+    "reward": -8901.318357026157
+  },
+  {
+    "rollout": 1,
+    "steps": 77,
+    "obs_steps": 9,
+    "reward": -8814.105417872795
+  },
+  {
+    "rollout": 2,
+    "steps": 70,
+    "obs_steps": 10,
+    "reward": -7749.691716803939
+  },
+  {
+    "rollout": 3,
+    "steps": 81,
+    "obs_steps": 2,
+    "reward": -9054.821850094802
+  },
+  {
+    "rollout": 4,
+    "steps": 74,
+    "obs_steps": 4,
+    "reward": -8160.793676193215
+  },
+  {
+    "rollout": 5,
+    "steps": 81,
+    "obs_steps": 9,
+    "reward": -8765.643173419096
+  },
+  {
+    "rollout": 6,
+    "steps": 77,
+    "obs_steps": 5,
+    "reward": -8576.53154214975
+  },
+  {
+    "rollout": 7,
+    "steps": 101,
+    "obs_steps": 28,
+    "reward": -9619.372624800835
+  },
+  {
+    "rollout": 8,
+    "steps": 101,
+    "obs_steps": 40,
+    "reward": -11064.999071245018
+  },
+  {
+    "rollout": 9,
+    "steps": 87,
+    "obs_steps": 0,
+    "reward": -9861.304645352167
+  }
+]
