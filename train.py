@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from env.pointbot import PointBot
 from mlp import MLPGaussianActor
 from algos.bc import trainBC
+from algos.cpl_paot import trainCPLpAOT
 from plotRollouts import computeStats, plotDemos
 
 
@@ -81,11 +82,6 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
-	# TODO generate pAOT pairings (no matter which method is being trained)
-
-	# TODO generate uAOT pairings (no matter which method is being trained)
-
-
 	# train using pure BC
 	if args.method == 'bc':
 		policy = trainBC(
@@ -96,11 +92,51 @@ def main():
 			device      = device,
 			logInterval = cfg['log_interval'],
 		)
+
+	elif args.method == 'cpl_paot':
+		# phase 1: BC-train reference policy π_ref
+		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
+		print('\n--- phase 1: BC training of π_ref ---')
+		refPolicy = trainBC(
+			refPolicy, prefData,
+			bcSteps     = cfg['ref_bc_steps'],
+			batchSize   = cfg['batch_size'],
+			lr          = cfg['lr'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+		)
+		for param in refPolicy.parameters():
+			param.requires_grad = False
+		refPolicy.eval()
+
+		# phase 2: BC warmup of π_θ
+		if cfg.get('bc_warmup_steps', 0) > 0:
+			print('\n--- phase 2: BC warmup of π_θ ---')
+			policy = trainBC(
+				policy, prefData,
+				bcSteps     = cfg['bc_warmup_steps'],
+				batchSize   = cfg['batch_size'],
+				lr          = cfg['lr'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+			)
+
+		# phase 3: pAOT contrastive training
+		print('\n--- phase 3: pAOT contrastive training ---')
+		policy = trainCPLpAOT(
+			policy, refPolicy, prefData,
+			paotSteps   = cfg['cpl_paot_steps'],
+			batchSize   = cfg['paot_batch_size'],
+			lr          = cfg['lr'],
+			alpha       = cfg['alpha'],
+			gamma       = cfg['gamma'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+		)
+
 	# TODO train CPL policy
 
 	# TODO train CPL policy with beta regularization
-
-	# TODO train cpl_paot policy
 
 	# TODO train cpl_uaot policy
 

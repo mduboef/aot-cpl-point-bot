@@ -1,0 +1,10 @@
+ref_bc_steps: 10000
+bc_warmup_steps: 10000
+cpl_paot_steps: 20000
+batch_size: 256
+paot_batch_size: 32
+lr: 0.0001
+alpha: 0.1
+gamma: 1.0
+log_interval: 500
+eval_rollouts: 10
