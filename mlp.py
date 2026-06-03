@@ -1,4 +1,4 @@
-# holds code for the policy network and basic training functionality not specific to any one algorithm (e.g. BC, CPL, CPL_biased, cpl_paot, cpl_uaot)
+# holds code for the policy network
 
 import numpy as np
 import torch

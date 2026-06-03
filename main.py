@@ -56,7 +56,8 @@ def main():
 	plt.close(fig)
 	print(f'\nfigure saved to {savePath}')
 
-	# TODO behavior cloning on raw preference data
+	# TODO behavior cloning on raw state-action for trajectories that appear in the preference data
+	
 
 	# TODO plot demos and BC rollouts
 
