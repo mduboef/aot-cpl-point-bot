@@ -10,6 +10,14 @@ from mlp import MLPGaussianActor
 from algos.bc import trainBC
 from algos.cpl_paot import trainCPLpAOT
 from plotRollouts import computeStats, plotDemos
+from evaluate import preferenceAccuracy
+
+
+# pretty-prints overall and per-strategy-type preference accuracy
+def printAccuracy(label, acc):
+	print(f'  {label}: {acc["overall"]:.3f} overall  ({acc["nPairs"]} pairs)')
+	for st, d in acc['perType'].items():
+		print(f'    type {st}: {d["accuracy"]:.3f}  ({d["nPairs"]} pairs)')
 
 
 def rollout(env, policy):
@@ -39,13 +47,13 @@ def getRunDir(modelsDir, methodName):
 	return runDir
 
 
-def saveResults(runDir, policy, evalStats, rollouts, methodName):
+def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName):
 	# policy weights
 	torch.save(policy.state_dict(), os.path.join(runDir, 'policy.pt'))
 
-	# per-rollout evaluation stats
+	# per-rollout stats plus raw-pair preference accuracy on train and test sets
 	with open(os.path.join(runDir, 'eval_stats.json'), 'w') as f:
-		json.dump(evalStats, f, indent=2)
+		json.dump({'rollouts': evalStats, 'preferenceAccuracy': prefStats}, f, indent=2)
 
 	# rollout trajectory plot
 	fig, ax = plt.subplots(figsize=(9, 9))
@@ -90,6 +98,8 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
+	# TODO add tensorboard to watch training curves
+
 	# train using pure BC
 	if args.method == 'bc':
 		policy = trainBC(
@@ -101,6 +111,42 @@ def main():
 			logInterval = cfg['log_interval'],
 		)
 
+
+	# TODO train CPL policy
+	elif args.method == 'cpl':
+		# phase 1: BC warmup of π_θ
+		if cfg.get('bc_warmup_steps', 0) > 0:
+			print('\n--- phase 2: BC warmup of π_θ ---')
+			policy = trainBC(
+				policy, prefDataTrain,
+				bcSteps     = cfg['bc_warmup_steps'],
+				batchSize   = cfg['batch_size'],
+				lr          = cfg['lr'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+			)
+		# TODO phase 2: cpl-based training with no bias regularization
+		raise NotImplementedError(f'{args.method} is not implemented')
+
+
+	# TODO train CPL policy with beta regularization of 0.5
+	elif args.method == 'cpl_biased':
+		# phase 1: BC warmup of π_θ
+		if cfg.get('bc_warmup_steps', 0) > 0:
+			print('\n--- phase 2: BC warmup of π_θ ---')
+			policy = trainBC(
+				policy, prefDataTrain,
+				bcSteps     = cfg['bc_warmup_steps'],
+				batchSize   = cfg['batch_size'],
+				lr          = cfg['lr'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+			)
+		# TODO phase 2: cpl-based training with bias regularization of 0.5
+		raise NotImplementedError(f'{args.method} is not implemented')
+
+
+	# ! CPL_pAOT SEEMS TO BE BUGGED! THE ROLLOUTS ALL GO WAY OFF COURSE IN THE SAME DIRECTION
 	elif args.method == 'cpl_paot':
 		# phase 1: BC-train reference policy π_ref
 		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
@@ -129,7 +175,7 @@ def main():
 				logInterval = cfg['log_interval'],
 			)
 
-		# phase 3: pAOT contrastive training
+		# phase 3: cpl_pAOT preference training
 		print('\n--- phase 3: pAOT contrastive training ---')
 		policy = trainCPLpAOT(
 			policy, refPolicy, prefDataTrain,
@@ -142,43 +188,77 @@ def main():
 			logInterval = cfg['log_interval'],
 		)
 
-	# TODO train CPL policy
-
-	# TODO train CPL policy with beta regularization
 
 	# TODO train cpl_uaot policy
+	elif args.method == 'cpl_uaot':
+		# phase 1: BC-train reference policy π_ref
+		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
+		print('\n--- phase 1: BC training of π_ref ---')
+		refPolicy = trainBC(
+			refPolicy, prefDataTrain,
+			bcSteps     = cfg['ref_bc_steps'],
+			batchSize   = cfg['batch_size'],
+			lr          = cfg['lr'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+		)
+		for param in refPolicy.parameters():
+			param.requires_grad = False
+		refPolicy.eval()
+
+		# phase 2: BC warmup of π_θ
+		if cfg.get('bc_warmup_steps', 0) > 0:
+			print('\n--- phase 2: BC warmup of π_θ ---')
+			policy = trainBC(
+				policy, prefDataTrain,
+				bcSteps     = cfg['bc_warmup_steps'],
+				batchSize   = cfg['batch_size'],
+				lr          = cfg['lr'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+			)
+
+		# TODO phase 3: cpl_uAOT preference training with π_ref as the reference policy
+
+		raise NotImplementedError(f'{args.method} is not implemented')
+
 
 	else:
 		raise NotImplementedError(f'{args.method} is not implemented')
 
 	# generate rollouts
-	nRollouts = cfg.get('eval_rollouts', 10)
+	nRollouts = cfg.get('eval_rollouts', 25)
 	rollouts, evalStats = [], []
-	print(f'\n--- evaluation ({nRollouts} rollouts) ---')
 	for i in range(nRollouts):
 		traj = rollout(env, policy)
 		numSteps, obsSteps, cumReward = computeStats(traj['states'], traj['actions'])
-		print(f'  rollout {i:>2}  steps: {numSteps}  obs_steps: {obsSteps}  reward: {cumReward:.1f}')
 		rollouts.append((f'{args.method}_{i}',
 			{'Good_states': traj['states'], 'Good_actions': traj['actions']}))
 		evalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
 
 
-	# TODO evaluate policy on training data
-		# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
-		# Secondary: preference accuracy on original annotator pairs
-		# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
+	# secondary metric: preference accuracy on the ORIGINAL annotator pairs (not OT pairings)
+	# evaluated on both the training pairs and the unseen test pairs. broken out per
+	# strategy type so we can see if the policy collapses on minority strategies (types 4, 5).
+	# alpha/gamma fall back to the CPL defaults for methods (e.g. bc) whose config omits them.
+	alphaEval = cfg.get('alpha', 0.1)
+	gammaEval = cfg.get('gamma', 1.0)
 
+	print('\n--- preference accuracy on raw (non-OT) pairs ---')
+	trainAcc = preferenceAccuracy(policy, prefDataTrain, alphaEval, gammaEval, device)
+	testAcc  = preferenceAccuracy(policy, prefDataTest,  alphaEval, gammaEval, device)
+	printAccuracy('train', trainAcc)
+	printAccuracy('test',  testAcc)
+	prefStats = {'train': trainAcc, 'test': testAcc}
 
-	# TODO evaluate on test preference pairs
-		# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
-		# Secondary: preference accuracy on original annotator pairs
-		# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
-	
+	# TODO primary metric: FSD violation loss (pAOT and uAOT pairings).
+	# hold off until the cpl_pAOT / cpl_uAOT pairings are confirmed working.
+	# ? also consider the stochastic / Pareto dominance metrics from the PSD paper.
+
 	# save results to disk
 	modelsDir = os.path.join(scriptDir, 'models')
 	runDir    = getRunDir(modelsDir, args.method)
-	saveResults(runDir, policy, evalStats, rollouts, args.method)
+	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method)
 	print(f'\nresults saved → {runDir}')
 
 

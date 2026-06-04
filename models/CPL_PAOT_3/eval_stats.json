@@ -1,0 +1,62 @@
+[
+  {
+    "rollout": 0,
+    "steps": 101,
+    "obs_steps": 16,
+    "reward": -29717.27552587868
+  },
+  {
+    "rollout": 1,
+    "steps": 101,
+    "obs_steps": 24,
+    "reward": -30205.16140759769
+  },
+  {
+    "rollout": 2,
+    "steps": 101,
+    "obs_steps": 21,
+    "reward": -32773.5630458761
+  },
+  {
+    "rollout": 3,
+    "steps": 101,
+    "obs_steps": 21,
+    "reward": -30338.988897406358
+  },
+  {
+    "rollout": 4,
+    "steps": 101,
+    "obs_steps": 22,
+    "reward": -30961.705077640865
+  },
+  {
+    "rollout": 5,
+    "steps": 101,
+    "obs_steps": 23,
+    "reward": -31951.028945112525
+  },
+  {
+    "rollout": 6,
+    "steps": 101,
+    "obs_steps": 20,
+    "reward": -32048.20665807439
+  },
+  {
+    "rollout": 7,
+    "steps": 101,
+    "obs_steps": 21,
+    "reward": -31068.1556400736
+  },
+  {
+    "rollout": 8,
+    "steps": 101,
+    "obs_steps": 22,
+    "reward": -30198.165945555822
+  },
+  {
+    "rollout": 9,
+    "steps": 101,
+    "obs_steps": 24,
+    "reward": -30913.090805968746
+  }
+]

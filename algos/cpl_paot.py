@@ -1,3 +1,10 @@
+# ! CPL_pAOT SEEMS TO BE BUGGED!
+	# THE ROLLOUTS ALL GO WAY OFF COURSE IN THE SAME DIRECTION NOT TOWARDS THE GOAL
+	# it achieves near-zero paot_loss and accuracy of 1.0 (on training set) during training
+	# the general shape of the rollouts looks good but it looks like it is just miscalibrated to go too far left
+	# lets evaluate the trained cpl_aot policy on the test set
+
+
 # algos/cpl_paot.py
 #
 # CPL with Paired Alignment via Optimal Transport (pAOT).
