@@ -29,6 +29,8 @@
 import numpy as np
 import torch
 
+from evaluate import preferenceAccuracy
+
 
 # paot_loss
 # Formalization steps 5 and 6 of "CPL with pAOT" in finalReport.tex.
@@ -157,6 +159,19 @@ def _batchPolicyMargins(policy, cache, indices, alpha, gamma, device):
 	return torch.stack(uList)
 
 
+# _logRawAccuracy
+# Evaluate and log overall + per-strategy-type preference accuracy on a raw (non-OT)
+# preference set. Leaves the policy back in train mode (preferenceAccuracy flips it to
+# eval), so the training loop can continue uninterrupted.
+def _logRawAccuracy(writer, tag, policy, prefData, alpha, gamma, device, step):
+	acc = preferenceAccuracy(policy, prefData, alpha, gamma, device)
+	policy.train()
+	writer.add_scalar(f'accuracy/{tag}', acc['overall'], step)
+	for st, d in acc['perType'].items():
+		writer.add_scalar(f'{tag}PerType/type_{st}', d['accuracy'], step)
+	return acc['overall']
+
+
 # trainCPLpAOT
 # Phase 3: pAOT contrastive training of π_θ.
 #
@@ -180,6 +195,9 @@ def trainCPLpAOT(
 	gamma=1.0,
 	device='cpu',
 	logInterval=500,
+	writer=None,
+	prefDataTest=None,
+	evalInterval=500,
 ):
 	n = len(prefData)
 
@@ -209,6 +227,18 @@ def trainCPLpAOT(
 		optimizer.zero_grad(set_to_none=True)
 		loss.backward()
 		optimizer.step()
+
+		# per-step curves: pAOT loss and OT-paired accuracy on the sampled batch
+		if writer is not None:
+			writer.add_scalar('loss/paot', loss.item(), step)
+			writer.add_scalar('accuracy/otPaired', accuracy.item(), step)
+
+		# periodic curves: raw (non-OT) preference accuracy on the full train and test sets
+		if writer is not None and step % evalInterval == 0:
+			rawTrain = _logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, step)
+			rawTest  = None
+			if prefDataTest is not None:
+				rawTest = _logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, step)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{paotSteps}  paot_loss: {loss.item():.4f}  accuracy: {accuracy.item():.3f}')

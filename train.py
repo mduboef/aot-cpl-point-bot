@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 
 from env.pointbot import PointBot
 from mlp import MLPGaussianActor
@@ -98,7 +99,12 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
-	# TODO add tensorboard to watch training curves
+	# set up the run directory and tensorboard writer up front so training curves are
+	# written live; the policy, plots, and eval json are saved into the same dir at the end
+	modelsDir = os.path.join(scriptDir, 'models')
+	runDir    = getRunDir(modelsDir, args.method)
+	writer    = SummaryWriter(os.path.join(runDir, 'tb'))
+	print(f'tensorboard logdir → {os.path.join(runDir, "tb")}')
 
 	# train using pure BC
 	if args.method == 'bc':
@@ -186,6 +192,9 @@ def main():
 			gamma       = cfg['gamma'],
 			device      = device,
 			logInterval = cfg['log_interval'],
+			writer       = writer,
+			prefDataTest = prefDataTest,
+			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
 		)
 
 
@@ -255,10 +264,9 @@ def main():
 	# hold off until the cpl_pAOT / cpl_uAOT pairings are confirmed working.
 	# ? also consider the stochastic / Pareto dominance metrics from the PSD paper.
 
-	# save results to disk
-	modelsDir = os.path.join(scriptDir, 'models')
-	runDir    = getRunDir(modelsDir, args.method)
+	# save results to disk (into the same runDir as the tensorboard logs)
 	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method)
+	writer.close()
 	print(f'\nresults saved → {runDir}')
 
 
