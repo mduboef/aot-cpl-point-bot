@@ -88,10 +88,13 @@ def generatePairs(trajectories, annotator, strategyType):
 def main():
 	dataDir = os.path.dirname(os.path.abspath(__file__))
 
-	allPairs = []
+	trainingPairs = []
+
+
+	print("\n=== Generating training preference pairs ===")
 
 	for typeIdx in range(1, 6):
-		typeDir    = os.path.join(dataDir, str(typeIdx))
+		typeDir    = os.path.join(dataDir, f'{typeIdx}_train')
 		annotator  = ANNOTATORS[typeIdx]
 		demos      = loadDemos(typeDir)
 
@@ -102,7 +105,7 @@ def main():
 			trajectories.append((states, actions, feature))
 
 		pairs = generatePairs(trajectories, annotator, typeIdx)
-		allPairs.extend(pairs)
+		trainingPairs.extend(pairs)
 
 		print(f"type {typeIdx}: {len(demos)} demos  "
 			f"→ {len(pairs)} pairs")
@@ -118,11 +121,59 @@ def main():
 			print(f"  {rank:<5} {fname:<40} {feat[0]:>5} {feat[1]:>6} {feat[2]:>8.0f} {reward:>9.4f}")
 		print()
 
-	print(f"\ntotal pairs: {len(allPairs)}")
+	print(f"\ntotal pairs: {len(trainingPairs)}")
 
-	savePath = os.path.join(dataDir, 'preferences.pkl')
+	savePath = os.path.join(dataDir, 'trainPreferences.pkl')
 	with open(savePath, 'wb') as f:
-		pickle.dump(allPairs, f)
+		pickle.dump(trainingPairs, f)
+	print(f"saved → {savePath}")
+
+
+
+
+
+
+
+
+
+	print("\n=== Generating testing preference pairs ===")
+
+
+	testingPairs = []
+
+	for typeIdx in range(1, 6):
+		typeDir    = os.path.join(dataDir, f'{typeIdx}_test')
+		annotator  = ANNOTATORS[typeIdx]
+		demos      = loadDemos(typeDir)
+
+		# pool only the Good trajectories from every demo in this type
+		trajectories = []
+		for fname, data in demos:
+			states, actions, feature = extractTrajectory(data, 'Good')
+			trajectories.append((states, actions, feature))
+
+		pairs = generatePairs(trajectories, annotator, typeIdx)
+		testingPairs.extend(pairs)
+
+		print(f"type {typeIdx}: {len(demos)} demos  "
+			f"→ {len(pairs)} pairs")
+
+		ranked = sorted(
+			zip(demos, trajectories),
+			key=lambda x: annotatorReward(x[1][2], annotator),
+			reverse=True,
+		)
+		print(f"  {'rank':<5} {'file':<40} {'grey':>5} {'white':>6} {'dist':>8} {'reward':>9}")
+		for rank, ((fname, _), (_, _, feat)) in enumerate(ranked, 1):
+			reward = annotatorReward(feat, annotator)
+			print(f"  {rank:<5} {fname:<40} {feat[0]:>5} {feat[1]:>6} {feat[2]:>8.0f} {reward:>9.4f}")
+		print()
+
+	print(f"\ntotal pairs: {len(testingPairs)}")
+
+	savePath = os.path.join(dataDir, 'testPreferences.pkl')
+	with open(savePath, 'wb') as f:
+		pickle.dump(testingPairs, f)
 	print(f"saved → {savePath}")
 
 

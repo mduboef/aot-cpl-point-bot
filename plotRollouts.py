@@ -124,26 +124,38 @@ def main(savePathArg=None):
 
 
 	scriptDir = os.path.dirname(os.path.abspath(__file__))
-	dir1 = os.path.join(scriptDir, 'data', '1')
-	dir2 = os.path.join(scriptDir, 'data', '2')
-	dir3 = os.path.join(scriptDir, 'data', '3')
-	dir4 = os.path.join(scriptDir, 'data', '4')
-	dir5 = os.path.join(scriptDir, 'data', '5')
 
+	dir1Train = os.path.join(scriptDir, 'data', '1_train')
+	dir2Train = os.path.join(scriptDir, 'data', '2_train')
+	dir3Train = os.path.join(scriptDir, 'data', '3_train')
+	dir4Train = os.path.join(scriptDir, 'data', '4_train')
+	dir5Train = os.path.join(scriptDir, 'data', '5_train')
+
+	dir1Test = os.path.join(scriptDir, 'data', '1_test')
+	dir2Test = os.path.join(scriptDir, 'data', '2_test')
+	dir3Test = os.path.join(scriptDir, 'data', '3_test')
+	dir4Test = os.path.join(scriptDir, 'data', '4_test')
+	dir5Test = os.path.join(scriptDir, 'data', '5_test')
 
 	allDemos = [
-		(loadDemos(dir1), 'Demos Type 1', 'rollouts_1.png'),
-		(loadDemos(dir2), 'Demos Type 2', 'rollouts_2.png'),
-		(loadDemos(dir3), 'Demos Type 3', 'rollouts_3.png'),
-		(loadDemos(dir4), 'Demos Type 4', 'rollouts_4.png'),
-		(loadDemos(dir5), 'Demos Type 5', 'rollouts_5.png'),
+		(loadDemos(dir1Train), 'Training Demos Type 1', 'train_demos_1.png'),
+		(loadDemos(dir2Train), 'Training Demos Type 2', 'train_demos_2.png'),
+		(loadDemos(dir3Train), 'Training Demos Type 3', 'train_demos_3.png'),
+		(loadDemos(dir4Train), 'Training Demos Type 4', 'train_demos_4.png'),
+		(loadDemos(dir5Train), 'Training Demos Type 5', 'train_demos_5.png'),
+
+		(loadDemos(dir1Test), 'Testing Demos Type 1', 'test_demos_1.png'),
+		(loadDemos(dir2Test), 'Testing Demos Type 2', 'test_demos_2.png'),
+		(loadDemos(dir3Test), 'Testing Demos Type 3', 'test_demos_3.png'),
+		(loadDemos(dir4Test), 'Testing Demos Type 4', 'test_demos_4.png'),
+		(loadDemos(dir5Test), 'Testing Demos Type 5', 'test_demos_5.png'),
 	]
 
 	for demos, title, fname in allDemos:
 		fig, ax = plt.subplots(figsize=(9, 9))
 		plotDemos(ax, demos, title)
 		plt.tight_layout()
-		savePath = os.path.join(scriptDir, 'rolloutPlots', fname)
+		savePath = os.path.join(scriptDir, 'demoPlots', fname)
 		plt.savefig(savePath, dpi=150, bbox_inches='tight')
 		print(f"\nFigure saved to {savePath}")
 		plt.close(fig)

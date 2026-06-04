@@ -69,11 +69,19 @@ def main():
 	device = 'cuda' if torch.cuda.is_available() else 'cpu'
 	print(f'method: {args.method}  device: {device}')
 
-	# read in pre-generated preference data
-	prefPath = os.path.join(scriptDir, 'data', 'preferences.pkl')
-	with open(prefPath, 'rb') as f:
-		prefData = pickle.load(f)
-	print(f'loaded {len(prefData)} preference pairs')
+
+	# read in training set of preference pairs
+	prefPathTrain = os.path.join(scriptDir, 'data', 'trainPreferences.pkl')
+	with open(prefPathTrain, 'rb') as f:
+		prefDataTrain = pickle.load(f)
+	print(f'loaded {len(prefDataTrain)} preference pairs')
+
+	# read in testing set of preference pairs
+	prefPathTest = os.path.join(scriptDir, 'data', 'testPreferences.pkl')
+	with open(prefPathTest, 'rb') as f:
+		prefDataTest = pickle.load(f)
+	print(f'loaded {len(prefDataTest)} preference pairs')
+
 
 	# initialize environment
 	env    = PointBot()
@@ -85,7 +93,7 @@ def main():
 	# train using pure BC
 	if args.method == 'bc':
 		policy = trainBC(
-			policy, prefData,
+			policy, prefDataTrain,
 			bcSteps     = cfg['bc_steps'],
 			batchSize   = cfg['batch_size'],
 			lr          = cfg['lr'],
@@ -98,7 +106,7 @@ def main():
 		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 		print('\n--- phase 1: BC training of π_ref ---')
 		refPolicy = trainBC(
-			refPolicy, prefData,
+			refPolicy, prefDataTrain,
 			bcSteps     = cfg['ref_bc_steps'],
 			batchSize   = cfg['batch_size'],
 			lr          = cfg['lr'],
@@ -113,7 +121,7 @@ def main():
 		if cfg.get('bc_warmup_steps', 0) > 0:
 			print('\n--- phase 2: BC warmup of π_θ ---')
 			policy = trainBC(
-				policy, prefData,
+				policy, prefDataTrain,
 				bcSteps     = cfg['bc_warmup_steps'],
 				batchSize   = cfg['batch_size'],
 				lr          = cfg['lr'],
@@ -124,7 +132,7 @@ def main():
 		# phase 3: pAOT contrastive training
 		print('\n--- phase 3: pAOT contrastive training ---')
 		policy = trainCPLpAOT(
-			policy, refPolicy, prefData,
+			policy, refPolicy, prefDataTrain,
 			paotSteps   = cfg['cpl_paot_steps'],
 			batchSize   = cfg['paot_batch_size'],
 			lr          = cfg['lr'],
@@ -155,12 +163,18 @@ def main():
 			{'Good_states': traj['states'], 'Good_actions': traj['actions']}))
 		evalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
 
-		# TODO evaluate all policy on:
-			# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
-			# Secondary: preference accuracy on original annotator pairs
-			# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
+
+	# TODO evaluate policy on training data
+		# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
+		# Secondary: preference accuracy on original annotator pairs
+		# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
 
 
+	# TODO evaluate on test preference pairs
+		# Primary:   FSD violation loss (2 functions using uAOT and pAOT pairings respectively)
+		# Secondary: preference accuracy on original annotator pairs
+		# ? Would it be possible/informative to calculate the stochastic dominance and pareto dominance metrics used in the PSD paper?
+	
 	# save results to disk
 	modelsDir = os.path.join(scriptDir, 'models')
 	runDir    = getRunDir(modelsDir, args.method)
