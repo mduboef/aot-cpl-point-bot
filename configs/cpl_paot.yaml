@@ -1,4 +1,4 @@
-ref_bc_steps: 10000
+ref_bc_steps: 20000
 bc_warmup_steps: 10000
 cpl_paot_steps: 20000
 batch_size: 256

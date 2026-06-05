@@ -1,4 +1,4 @@
-import os, pickle, argparse, json
+import os, pickle, argparse, json, shutil
 import yaml
 import numpy as np
 import torch
@@ -47,13 +47,16 @@ def getRunDir(modelsDir, methodName):
 	return runDir
 
 
-def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName):
+def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath):
 	# policy weights
 	torch.save(policy.state_dict(), os.path.join(runDir, 'policy.pt'))
 
 	# per-rollout stats plus raw-pair preference accuracy on train and test sets
 	with open(os.path.join(runDir, 'eval_stats.json'), 'w') as f:
 		json.dump({'rollouts': evalStats, 'preferenceAccuracy': prefStats}, f, indent=2)
+
+	# copy yaml config file used in training into runDir
+	shutil.copy(configPath, os.path.join(runDir, os.path.basename(configPath)))
 
 	# rollout trajectory plot
 	fig, ax = plt.subplots(figsize=(9, 9))
@@ -98,15 +101,71 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
-	# set up the run directory and tensorboard writer up front so training curves are
-	# written live; the policy, plots, and eval json are saved into the same dir at the end
+	# set up the run directory and tensorboard writer up front so training curves are written live
+	# the policy, plots, and eval json are saved into the same dir at the end
 	modelsDir = os.path.join(scriptDir, 'models')
 	runDir    = getRunDir(modelsDir, args.method)
 	writer    = SummaryWriter(os.path.join(runDir, 'tb'))
 	print(f'tensorboard logdir → {os.path.join(runDir, "tb")}')
 
+	# number of rollouts generated after training
+	nRollouts = 25
+	# ? what do these params control
+		# supposed used to convert advantage function in cpl-based policies to "preference scores", not sure what that means though
+	alphaEval = cfg.get('alpha', 0.1)
+	gammaEval = cfg.get('gamma', 1.0)
+
+
+
+	# establish reference policy, trained once and cached in models/REF_POLICY/
+	refPolicyDir  = os.path.join(modelsDir, 'REF_POLICY')
+	refPolicyPath = os.path.join(refPolicyDir, 'policy.pt')
+
+	# load existing ref policy is one exists
+	if os.path.isfile(refPolicyPath):
+		with open(os.path.join(refPolicyDir, 'config.yaml')) as f:
+			refConfig = yaml.safe_load(f)
+		if refConfig.get('ref_bc_steps', 0) != cfg.get('ref_bc_steps', 0):
+			print(f'WARNING: saved reference policy was trained with ref_bc_steps = {refConfig.get("ref_bc_steps", 0)}, but current config has ref_bc_steps = {cfg.get("ref_bc_steps", 0)}; loading saved ref policy anyway')
+		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
+		refPolicy.load_state_dict(torch.load(refPolicyPath, map_location=device))
+		refPolicy.to(device)
+		refPolicy.eval()
+		print(f'reference policy loaded from {refPolicyPath}')
+
+	# train and save new ref policy is one doesn't exist
+	else:
+		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
+		print('\n--- phase 1: BC training of π_ref ---')
+		refPolicy = trainBC(
+			refPolicy, prefDataTrain,
+			bcSteps     = cfg['ref_bc_steps'],
+			batchSize   = cfg['batch_size'],
+			lr          = cfg['lr'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+		)
+		for param in refPolicy.parameters():
+			param.requires_grad = False
+		refPolicy.eval()
+		os.makedirs(refPolicyDir)
+		refRollouts, refEvalStats = [], []
+		for i in range(nRollouts):
+			traj = rollout(env, refPolicy)
+			numSteps, obsSteps, cumReward = computeStats(traj['states'], traj['actions'])
+			refRollouts.append((f'ref_{i}', {'Good_states': traj['states'], 'Good_actions': traj['actions']}))
+			refEvalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
+		refTrainAcc  = preferenceAccuracy(refPolicy, prefDataTrain, alphaEval, gammaEval, device)
+		refTestAcc   = preferenceAccuracy(refPolicy, prefDataTest,  alphaEval, gammaEval, device)
+		refPrefStats = {'train': refTrainAcc, 'test': refTestAcc}
+		saveResults(refPolicyDir, refPolicy, refEvalStats, refPrefStats, refRollouts, 'ref', configPath)
+		shutil.copy(configPath, os.path.join(refPolicyDir, 'config.yaml'))
+		print(f'reference policy saved → {refPolicyDir}')
+
+
+
 	# train using pure BC
-	if args.method == 'bc':
+	if  args.method == 'bc':
 		policy = trainBC(
 			policy, prefDataTrain,
 			bcSteps     = cfg['bc_steps'],
@@ -117,156 +176,99 @@ def main():
 		)
 
 
-	# train baseline CPL policy (no reference policy, λ = contrastive_bias)
-	elif args.method == 'cpl':
-		# phase 2: BC warmup of π_θ
-		if cfg.get('bc_warmup_steps', 0) > 0:
-			print('\n--- phase 2: BC warmup of π_θ ---')
-			policy = trainBC(
-				policy, prefDataTrain,
-				bcSteps     = cfg['bc_warmup_steps'],
-				batchSize   = cfg['batch_size'],
-				lr          = cfg['lr'],
-				device      = device,
-				logInterval = cfg['log_interval'],
-			)
-
-		# phase 3: CPL contrastive training
-		print('\n--- phase 3: CPL contrastive training ---')
-		policy = trainCPL(
-			policy, prefDataTrain,
-			cplSteps    = cfg['cpl_steps'],
-			batchSize   = cfg['cpl_batch_size'],
-			lr          = cfg['lr'],
-			alpha       = cfg['alpha'],
-			gamma       = cfg['gamma'],
-			bias        = cfg['contrastive_bias'],
-			device      = device,
-			logInterval = cfg['log_interval'],
-			writer       = writer,
-			prefDataTest = prefDataTest,
-			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-		)
-
-
-	# train conservative CPL policy (no reference policy, λ = contrastive_bias = 0.5)
-	# identical pipeline to the cpl branch; the only difference is contrastive_bias in the config
-	elif args.method == 'cpl_biased':
-		# phase 2: BC warmup of π_θ
-		if cfg.get('bc_warmup_steps', 0) > 0:
-			print('\n--- phase 2: BC warmup of π_θ ---')
-			policy = trainBC(
-				policy, prefDataTrain,
-				bcSteps     = cfg['bc_warmup_steps'],
-				batchSize   = cfg['batch_size'],
-				lr          = cfg['lr'],
-				device      = device,
-				logInterval = cfg['log_interval'],
-			)
-
-		# phase 3: CPL contrastive training with λ = 0.5
-		print('\n--- phase 3: CPL contrastive training (λ = 0.5) ---')
-		policy = trainCPL(
-			policy, prefDataTrain,
-			cplSteps    = cfg['cpl_steps'],
-			batchSize   = cfg['cpl_batch_size'],
-			lr          = cfg['lr'],
-			alpha       = cfg['alpha'],
-			gamma       = cfg['gamma'],
-			bias        = cfg['contrastive_bias'],
-			device      = device,
-			logInterval = cfg['log_interval'],
-			writer       = writer,
-			prefDataTest = prefDataTest,
-			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-		)
-
-
-	# ! CPL_pAOT SEEMS TO BE BUGGED! THE ROLLOUTS ALL GO WAY OFF COURSE IN THE SAME DIRECTION
-	elif args.method == 'cpl_paot':
-		# phase 1: BC-train reference policy π_ref
-		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
-		print('\n--- phase 1: BC training of π_ref ---')
-		refPolicy = trainBC(
-			refPolicy, prefDataTrain,
-			bcSteps     = cfg['ref_bc_steps'],
-			batchSize   = cfg['batch_size'],
-			lr          = cfg['lr'],
-			device      = device,
-			logInterval = cfg['log_interval'],
-		)
-		for param in refPolicy.parameters():
-			param.requires_grad = False
-		refPolicy.eval()
-
-		# phase 2: BC warmup of π_θ
-		if cfg.get('bc_warmup_steps', 0) > 0:
-			print('\n--- phase 2: BC warmup of π_θ ---')
-			policy = trainBC(
-				policy, prefDataTrain,
-				bcSteps     = cfg['bc_warmup_steps'],
-				batchSize   = cfg['batch_size'],
-				lr          = cfg['lr'],
-				device      = device,
-				logInterval = cfg['log_interval'],
-			)
-
-		# phase 3: cpl_pAOT preference training
-		print('\n--- phase 3: pAOT contrastive training ---')
-		policy = trainCPLpAOT(
-			policy, refPolicy, prefDataTrain,
-			paotSteps   = cfg['cpl_paot_steps'],
-			batchSize   = cfg['paot_batch_size'],
-			lr          = cfg['lr'],
-			alpha       = cfg['alpha'],
-			gamma       = cfg['gamma'],
-			device      = device,
-			logInterval = cfg['log_interval'],
-			writer       = writer,
-			prefDataTest = prefDataTest,
-			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-		)
-
-
-	# TODO train cpl_uaot policy
-	elif args.method == 'cpl_uaot':
-		# phase 1: BC-train reference policy π_ref
-		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
-		print('\n--- phase 1: BC training of π_ref ---')
-		refPolicy = trainBC(
-			refPolicy, prefDataTrain,
-			bcSteps     = cfg['ref_bc_steps'],
-			batchSize   = cfg['batch_size'],
-			lr          = cfg['lr'],
-			device      = device,
-			logInterval = cfg['log_interval'],
-		)
-		for param in refPolicy.parameters():
-			param.requires_grad = False
-		refPolicy.eval()
-
-		# phase 2: BC warmup of π_θ
-		if cfg.get('bc_warmup_steps', 0) > 0:
-			print('\n--- phase 2: BC warmup of π_θ ---')
-			policy = trainBC(
-				policy, prefDataTrain,
-				bcSteps     = cfg['bc_warmup_steps'],
-				batchSize   = cfg['batch_size'],
-				lr          = cfg['lr'],
-				device      = device,
-				logInterval = cfg['log_interval'],
-			)
-
-		# TODO phase 3: cpl_uAOT preference training with π_ref as the reference policy
-
-		raise NotImplementedError(f'{args.method} is not implemented')
-
-
 	else:
-		raise NotImplementedError(f'{args.method} is not implemented')
+		# phase 1: BC warmup of π_θ
+		if cfg.get('bc_warmup_steps', 0) > 0:
+			print('\n--- BC warmup of π_θ ---')
+			policy = trainBC(
+				policy, prefDataTrain,
+				bcSteps     = cfg['bc_warmup_steps'],
+				batchSize   = cfg['batch_size'],
+				lr          = cfg['lr'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+			)
+		
+
+		# phase 2: preference learning kicks in
+
+		# baseline CPL (λ = 1.0)
+		if args.method == 'cpl':
+			print('\n--- CPL on π_θ ---')
+			policy = trainCPL(
+				policy, prefDataTrain,
+				cplSteps    = cfg['cpl_steps'],
+				batchSize   = cfg['cpl_batch_size'],
+				lr          = cfg['lr'],
+				alpha       = cfg['alpha'],
+				gamma       = cfg['gamma'],
+				bias        = cfg['contrastive_bias'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+				writer       = writer,
+				prefDataTest = prefDataTest,
+				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+			)
+
+
+		# biased CPL (λ = 0.5)
+		elif args.method == 'cpl_biased':
+			print('\n--- phase 3: CPL (λ = 0.5) on π_θ ---')
+			policy = trainCPL(
+				policy, prefDataTrain,
+				cplSteps    = cfg['cpl_steps'],
+				batchSize   = cfg['cpl_batch_size'],
+				lr          = cfg['lr'],
+				alpha       = cfg['alpha'],
+				gamma       = cfg['gamma'],
+				bias        = cfg['contrastive_bias'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+				writer       = writer,
+				prefDataTest = prefDataTest,
+				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+			)
+
+		# CPL pAOT
+		elif args.method == 'cpl_paot':
+			# phase 2: cpl_pAOT preference training
+			print('\n--- phase 3: pAOT contrastive training ---')
+			policy = trainCPLpAOT(
+				policy, refPolicy, prefDataTrain,
+				paotSteps   = cfg['cpl_paot_steps'],
+				batchSize   = cfg['paot_batch_size'],
+				lr          = cfg['lr'],
+				alpha       = cfg['alpha'],
+				gamma       = cfg['gamma'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+				writer       = writer,
+				prefDataTest = prefDataTest,
+				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+			)
+
+
+		# CPL uAOT
+		# TODO train using CPL uAOT
+		elif args.method == 'cpl_uaot':
+			raise NotImplementedError(f'{args.method} is not implemented')
+
+
+		else:
+			raise NotImplementedError(f'{args.method} is not implemented')
+
+
+	# TODO calulate pAOT loss on training data
+	# TODO calculate pAOT loss on testing data
+	# TODO calculate uAOT loss on training data
+	# TODO calculate AOT loss on testing data
+	# each loss metric requires creating the corresponding pairing
+		# depends on pi_ref and final policy
+		# show how severe & frequent its first order stochastic violations are
+		# should be done no matter which method used to train
+
 
 	# generate rollouts
-	nRollouts = 25
 	rollouts, evalStats = [], []
 	for i in range(nRollouts):
 		traj = rollout(env, policy)
@@ -280,9 +282,6 @@ def main():
 	# evaluated on both the training pairs and the unseen test pairs. broken out per
 	# strategy type so we can see if the policy collapses on minority strategies (types 4, 5).
 	# alpha/gamma fall back to the CPL defaults for methods (e.g. bc) whose config omits them.
-	alphaEval = cfg.get('alpha', 0.1)
-	gammaEval = cfg.get('gamma', 1.0)
-
 	print('\n--- preference accuracy on raw (non-OT) pairs ---')
 	trainAcc = preferenceAccuracy(policy, prefDataTrain, alphaEval, gammaEval, device)
 	testAcc  = preferenceAccuracy(policy, prefDataTest,  alphaEval, gammaEval, device)
@@ -295,7 +294,7 @@ def main():
 	# ? also consider the stochastic / Pareto dominance metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
-	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method)
+	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath)
 	writer.close()
 	print(f'\nresults saved → {runDir}')
 
