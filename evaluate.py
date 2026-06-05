@@ -50,3 +50,52 @@ def preferenceAccuracy(policy, prefData, alpha=0.1, gamma=1.0, device='cpu'):
 		for st in sorted(totalByType)
 	}
 	return {'overall': overall, 'nPairs': len(prefData), 'perType': perType}
+
+
+# computes the pAOT loss of a trained policy against π_ref over a full preference set, plus
+# first-order stochastic dominance (FSD) violation diagnostics. mirrors the training objective
+# in algos/cpl_paot.py (sort both margin sets independently, match by quantile, CPL loss on the
+# matched pairs) but runs once over every pair with no gradients. a high loss / high violation
+# rate means the trained policy's margin distribution fails to stochastically dominate π_ref's.
+#
+# u_θ^i = score(σ+; π_θ) - score(σ-; π_θ);  v_ref^i = score(σ+; π_ref) - score(σ-; π_ref)
+# after independent sorting, a violation at quantile i is u_sorted[i] < v_sorted[i] (the policy
+# margin fails to dominate the reference margin there). frequency = fraction of quantiles
+# violated; severity = mean / max shortfall (v_sorted - u_sorted) over the violated quantiles.
+def paotLoss(policy, refPolicy, prefData, alpha=0.1, gamma=1.0, device='cpu'):
+	# imported lazily: algos.cpl_paot imports preferenceAccuracy from this module at load time,
+	# so a top-level import here would be circular
+	from algos.cpl_paot import _cachePrefTensors, computeRefMargins, _batchPolicyMargins, paot_loss
+
+	policy = policy.to(device)
+	policy.eval()
+	refPolicy = refPolicy.to(device)
+	refPolicy.eval()
+
+	cache = _cachePrefTensors(prefData, device)
+	n = len(cache)
+
+	# reference and policy margins over every pair (one batched forward pass each)
+	vRef = computeRefMargins(refPolicy, cache, alpha, gamma, device).to(device)  # (n,)
+	with torch.no_grad():
+		uTheta = _batchPolicyMargins(policy, cache, range(n), alpha, gamma, device)  # (n,)
+		loss, otAccuracy = paot_loss(uTheta, vRef)
+
+		# FSD violation diagnostics on the sorted (quantile-matched) margins
+		uSorted   = torch.sort(uTheta).values
+		vSorted   = torch.sort(vRef).values
+		shortfall = vSorted - uSorted          # > 0 where the policy violates dominance
+		violated  = shortfall > 0
+		nViolations = int(violated.sum().item())
+		meanShortfall = float(shortfall[violated].mean().item()) if nViolations else 0.0
+		maxShortfall  = float(shortfall[violated].max().item())  if nViolations else 0.0
+
+	return {
+		'paotLoss':      float(loss.item()),
+		'nPairs':        n,
+		'nViolations':   nViolations,
+		'violationFreq': nViolations / n if n else 0.0,
+		'meanShortfall': meanShortfall,
+		'maxShortfall':  maxShortfall,
+		'otAccuracy':    float(otAccuracy.item()),
+	}

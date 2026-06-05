@@ -12,7 +12,7 @@ from algos.bc import trainBC
 from algos.cpl import trainCPL
 from algos.cpl_paot import trainCPLpAOT
 from plotRollouts import computeStats, plotDemos
-from evaluate import preferenceAccuracy
+from evaluate import preferenceAccuracy, paotLoss
 
 
 # pretty-prints overall and per-strategy-type preference accuracy
@@ -47,13 +47,17 @@ def getRunDir(modelsDir, methodName):
 	return runDir
 
 
-def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath):
+def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, paotStats=None):
 	# policy weights
 	torch.save(policy.state_dict(), os.path.join(runDir, 'policy.pt'))
 
-	# per-rollout stats plus raw-pair preference accuracy on train and test sets
+	# per-rollout stats plus raw-pair preference accuracy on train and test sets, and
+	# (when provided) the pAOT loss / FSD-violation diagnostics on train and test
+	results = {'rollouts': evalStats, 'preferenceAccuracy': prefStats}
+	if paotStats is not None:
+		results['paotLoss'] = paotStats
 	with open(os.path.join(runDir, 'eval_stats.json'), 'w') as f:
-		json.dump({'rollouts': evalStats, 'preferenceAccuracy': prefStats}, f, indent=2)
+		json.dump(results, f, indent=2)
 
 	# copy yaml config file used in training into runDir
 	shutil.copy(configPath, os.path.join(runDir, os.path.basename(configPath)))
@@ -281,21 +285,26 @@ def main():
 	prefStats = {'train': trainAcc, 'test': testAcc}
 
 
-	# TODO calulate pAOT loss on training data
-	# TODO calculate pAOT loss on testing data
-		# requires creating the corresponding pairing
-		# depends on pi_ref and final policy
-		# show how severe & frequent its first order stochastic violations are
-		# should be done no matter which method used to train
+	# primary metric 1: pAOT loss of the trained policy (any method) against π_ref
+	# measures first-order stochastic dominance violations
+	print('\n--- pAOT loss vs π_ref (FSD violations) ---')
+	paotTrain = paotLoss(policy, refPolicy, prefDataTrain, alphaEval, gammaEval, device)
+	paotTest  = paotLoss(policy, refPolicy, prefDataTest,  alphaEval, gammaEval, device)
+	for label, p in [('train', paotTrain), ('test', paotTest)]:
+		print(f'  {label}: paot_loss {p["paotLoss"]:.4f}  '
+			f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
+			f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
+	paotStats = {'train': paotTrain, 'test': paotTest}
 
 
+	# primary metric 2: uAOT loss of the trained policy (any method) making use of π_ref
 	# TODO (do later, not yet) calculate uAOT loss on training data
 	# TODO (do later, not yet) calculate uAOT loss on testing data
 
 	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
-	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath)
+	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, paotStats)
 	writer.close()
 	print(f'\nresults saved → {runDir}')
 
