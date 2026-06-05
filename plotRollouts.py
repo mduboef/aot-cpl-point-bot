@@ -70,7 +70,7 @@ def plotDemos(ax, demos, title):
 		goodStates = trimStates(data['Good_states'], data['Good_actions'])
 		tg, obsG, rewG = computeStats(data['Good_states'], data['Good_actions'])
 		ax.plot(goodStates[:, 0], goodStates[:, 2],
-				color=color, linewidth=1.8, label=f'{fname[:-4]}')
+				color=color, linewidth=1.8, label=fname.removesuffix('.pkl'))
 		print(f"  {fname:<42} {'Good':<5} {tg:>6}  {obsG:>9}  {rewG:>10.1f}")
 
 		# badStates = trimStates(data['Bad_states'], data['Bad_actions'])

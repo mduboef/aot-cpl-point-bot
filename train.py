@@ -77,7 +77,7 @@ def main():
 	with open(configPath) as f:
 		cfg = yaml.safe_load(f)
 
-	device = 'cuda' if torch.cuda.is_available() else 'cpu'
+	device = 'cuda' if torch.cuda.is_available() else 'cpu'		# ? wtf is device? Does it specify the hardware type we will run on?
 	print(f'method: {args.method}  device: {device}')
 
 
@@ -264,7 +264,7 @@ def main():
 	for i in range(nRollouts):
 		traj = rollout(env, policy)
 		numSteps, obsSteps, cumReward = computeStats(traj['states'], traj['actions'])
-		rollouts.append((f'{args.method}_{i}',
+		rollouts.append((str(i + 1),
 			{'Good_states': traj['states'], 'Good_actions': traj['actions']}))
 		evalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
 
@@ -283,12 +283,14 @@ def main():
 
 	# TODO calulate pAOT loss on training data
 	# TODO calculate pAOT loss on testing data
-	# TODO calculate uAOT loss on training data
-	# TODO calculate AOT loss on testing data
-	# each loss metric requires creating the corresponding pairing
+		# requires creating the corresponding pairing
 		# depends on pi_ref and final policy
 		# show how severe & frequent its first order stochastic violations are
 		# should be done no matter which method used to train
+
+
+	# TODO (do later, not yet) calculate uAOT loss on training data
+	# TODO (do later, not yet) calculate uAOT loss on testing data
 
 	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
