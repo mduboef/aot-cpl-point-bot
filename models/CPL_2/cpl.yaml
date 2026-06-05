@@ -1,0 +1,12 @@
+# baseline unbiased CPL (no reference policy)
+ref_bc_steps: 20000
+bc_warmup_steps: 10000   # phase 1: BC warmup of π_θ before contrastive training
+cpl_steps: 20000         # phase 2: CPL contrastive steps
+batch_size: 256          # BC warmup batch (obs, action) pairs
+cpl_batch_size: 64       # contrastive batch (preference pairs per step)
+lr: 0.0001
+alpha: 0.1               # entropy temperature
+gamma: 1.0               # discount in the segment score
+contrastive_bias: 1.0    # λ = 1.0 unbiased CPL (0.5 for the conservative variant)
+log_interval: 500
+eval_interval: 500

@@ -160,7 +160,7 @@ def main():
 		refPrefStats = {'train': refTrainAcc, 'test': refTestAcc}
 		saveResults(refPolicyDir, refPolicy, refEvalStats, refPrefStats, refRollouts, 'ref', configPath)
 		shutil.copy(configPath, os.path.join(refPolicyDir, 'config.yaml'))
-		print(f'reference policy saved → {refPolicyDir}')
+		print(f'Reference policy saved → {refPolicyDir}')
 
 
 
@@ -213,7 +213,7 @@ def main():
 
 		# biased CPL (λ = 0.5)
 		elif args.method == 'cpl_biased':
-			print('\n--- phase 3: CPL (λ = 0.5) on π_θ ---')
+			print('\n---CPL (λ = 0.5) on π_θ ---')
 			policy = trainCPL(
 				policy, prefDataTrain,
 				cplSteps    = cfg['cpl_steps'],
@@ -231,8 +231,7 @@ def main():
 
 		# CPL pAOT
 		elif args.method == 'cpl_paot':
-			# phase 2: cpl_pAOT preference training
-			print('\n--- phase 3: pAOT contrastive training ---')
+			print('\n--- CPL pAOT on π_θ ---')
 			policy = trainCPLpAOT(
 				policy, refPolicy, prefDataTrain,
 				paotSteps   = cfg['cpl_paot_steps'],
@@ -251,21 +250,13 @@ def main():
 		# CPL uAOT
 		# TODO train using CPL uAOT
 		elif args.method == 'cpl_uaot':
+			print('\n--- CPL uAOT on π_θ ---')
 			raise NotImplementedError(f'{args.method} is not implemented')
 
 
 		else:
 			raise NotImplementedError(f'{args.method} is not implemented')
 
-
-	# TODO calulate pAOT loss on training data
-	# TODO calculate pAOT loss on testing data
-	# TODO calculate uAOT loss on training data
-	# TODO calculate AOT loss on testing data
-	# each loss metric requires creating the corresponding pairing
-		# depends on pi_ref and final policy
-		# show how severe & frequent its first order stochastic violations are
-		# should be done no matter which method used to train
 
 
 	# generate rollouts
@@ -289,9 +280,17 @@ def main():
 	print(f'  test:  {testAcc["overall"]:.3f} overall  ({testAcc["nPairs"]} pairs)')
 	prefStats = {'train': trainAcc, 'test': testAcc}
 
-	# TODO primary metric: FSD violation loss (pAOT and uAOT pairings).
-	# hold off until the cpl_pAOT / cpl_uAOT pairings are confirmed working.
-	# ? also consider the stochastic / Pareto dominance metrics from the PSD paper.
+
+	# TODO calulate pAOT loss on training data
+	# TODO calculate pAOT loss on testing data
+	# TODO calculate uAOT loss on training data
+	# TODO calculate AOT loss on testing data
+	# each loss metric requires creating the corresponding pairing
+		# depends on pi_ref and final policy
+		# show how severe & frequent its first order stochastic violations are
+		# should be done no matter which method used to train
+
+	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
 	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath)

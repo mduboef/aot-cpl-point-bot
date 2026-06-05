@@ -1,0 +1,378 @@
+\documentclass[11pt]{article}
+\usepackage{times}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\title{Independent Study Final Report \\ \large Distributionally Aligned Contrastive Preference Learning}
+\author{Mason duBoef}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+    \url{https://github.com/mduboef/aot-cpl}
+\end{center}
+
+\section*{Abstract}
+
+Contrastive preference learning (CPL) extends direct preference optimization to sequential decision-making but inherits an expectation-based objective that can collapse a policy onto a single dominant strategy while ignoring equally dominant strategies that appear less in the preference data. To address this limitation we adapt the Alignment via Optimal Transport (AOT) framework to CPL, replacing the average-margin objective with one that enforces first-order stochastic dominance across score distributions. We introduce three variants: CPL with unpaired AOT (uAOT), with and without a reference policy, and CPL with paired AOT (pAOT). On the MetaWorld drawer-open-v2 task, pAOT is competitive with baseline CPL, in terms of cumulative reward, even outperforming CPL under sparse rewards. Meanwhile, uAOT performs poorly, indicating an issue in our formalization or implementation. This reward-focused MetaWorld experiment does not investigate how these methods perform with diverse dominant strategies, the area where we believe distributional alignment provides value. Thus, we outline plans for a future grid-world experiment with distribution-based evaluation metrics that will serve as a cleaner proof of concept.
+
+
+I did all the formalization and implementation work on this project. Regular progress reports were emailed to Yaswanth throughout the semester. I will be continuing to work on this project under Yaswanth's supervision as we transition into the summer. I expect to have experimental results for our new grid-world setup in the next couple weeks.
+
+\section{Introduction}
+
+% preference-based learning context
+Preference-based learning has emerged as a popular alternative to traditional reinforcement learning from human feedback (RLHF). By collapsing the standard two-phase RLHF pipeline (fit a reward model, then optimize it with RL) into a single supervised objective, preference-based methods eliminate a source of reward misspecification and avoid the variance and instability of policy-gradient and approximate dynamic programming methods. Direct Preference Optimization (DPO) \cite{rafailov2023dpo} has become a standard approach for LLM alignment in the contextual-bandit setting, learning directly from pairwise preferences over responses to a single prompt. Contrastive Preference Learning (CPL) \cite{hejna2024cpl} extends the same idea to sequential decision-making, learning a policy from preferences expressed over pairs of state-action sequences.
+
+% expectation-based limitation
+Both DPO and CPL rely on an expectation-based learning objective. They maximize the average margin between preferred and rejected instances across all preference pairs. This framework can systematically misrepresent minority dominant strategies, behaviors that rarely appear in the dataset but are always preferred. Since these strategies appear infrequently, classifying them correctly contributes little to the average margin. Thus, CPL is largely indifferent to whether such a strategy is correctly classified. Under the CPL learning objective, a policy could achieve low loss by collapsing onto a single dominant strategy, even when the preference data clearly supports multiple distinct dominant behaviors.
+
+% illustrative example
+Figure~\ref{fig:cplIssue} illustrates a simple example where CPL may assign low probability to a minority dominant strategy.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth]{CPL Issue Diagram.png}
+    \caption{Preference data with two dominant strategies. Assume green trajectories have a ground-truth cumulative reward of 10, yellow trajectories 8, and red trajectories 1. The yellow ``top-right'' strategy is common in the dataset and always labeled as preferred. The green ``straight'' strategy is also always labeled as preferred when it appears, but appears far less frequently.}
+    \label{fig:cplIssue}
+\end{figure}
+
+Because the yellow strategy appears in the majority of preferred segments, increasing the margin between yellow trajectories and their rejected counterparts substantially reduces the average loss. Correctly classifying the rarer green pairs reduces the loss only marginally. A CPL-trained policy therefore risks collapsing to the yellow strategy and assigning little probability mass to the green strategy, despite both being dominant in the preference data.
+
+% AOT as the distributional fix
+This limitation can be addressed through distributional alignment. Alignment via Optimal Transport (AOT) \cite{melnyk2024aot}, introduced for DPO in the contextual-bandit setting, replaces the point-wise margin objective with one that penalizes violations of first-order stochastic dominance (FSD) between two score distributions. It achieves distribution-based alignment by performing one-dimensional optimal transport between distributions, rank-matching instances between the two distributions. AOT has two variants: Unpaired Alignment via Optimal Transport (uAOT) enforces FSD between the distribution of scores among all preferred instances and the distribution of scores among all rejected instances. Paired Alignment via Optimal Transport (pAOT) enforces FSD between different distributions. Under pAOT the dominant distribution is the distribution of per-pair score differences under the training policy. Essentially, this represents how much $\pi_\theta$ prefers the preferred instance to the rejected instance across all preference pairs. The distribution we expect to be dominated is the distribution of those same margins under a reference policy, $\pi_\text{ref}$.
+
+% our contribution
+We apply the AOT framework to CPL. In doing so, we introduce three different distributionally aligned variants of CPL:
+
+\begin{itemize}
+    \item \textbf{CPL with uAOT (no reference policy)}: enforces FSD between the distribution of policy scores on preferred segments and the distribution of policy scores on rejected segments.
+    \item \textbf{CPL with uAOT (with reference policy)}: identical to the above method, but each segment score is replaced with a log-likelihood ratio between the trained policy and a fixed reference policy.
+    \item \textbf{CPL with pAOT}: enforces FSD between the distribution of per-pair policy margins and the distribution of per-pair reference-policy margins.
+\end{itemize}
+
+% honest take about experimental setup
+We evaluate these methods on the MetaWorld drawer-open-v2 task \cite{yu2019metaworld} under dense and sparse rewards. In brief, pAOT is competitive with baseline CPL on average reward and outperforms it under sparse rewards, while uAOT collapses, pointing to an issue in our uAOT formalization or implementation that has yet to be resolved. We present these results as evidence of general performance behavior, but it has become clear that the setup is not a meaningful test of the pluralist behavior our distributional alignment is designed to address. The drawer-open-v2 task has a single natural solution path, and the evaluation metrics we use to evaluate performance on MetaWorld (average reward and preference accuracy on training pairs) measure neither stochastic dominance violations nor the preservation of minority dominant strategies. The Further Plans section outlines a planned grid-world experiment, adapted from \cite{farajzadeh2025psd}, that is explicitly constructed to contain minority dominant strategies and is paired with distributional evaluation metrics that directly test the new approaches' ability to pluralistically maintain multiple dominant strategies while achieving competitive performance in terms of the ground-truth reward.
+
+\newpage
+\section{Methodology}
+\label{sec:methodology}
+
+We now formalize each of the three variants introduced in the previous section. The setup and assumptions are shared between approaches.
+
+\subsubsection*{Setup:}
+\begin{itemize}
+    \item MDP $(S,A,p,\gamma)$ without rewards
+    \item Dataset of pairwise preferences between segments: $\mathcal{D}_{pref} = \{(\sigma_1^+, \sigma_1^-), (\sigma_2^+, \sigma_2^-), ..., (\sigma_n^+, \sigma_n^-)\}$
+    \item Each segment is a variable length sequence of $(s, a)$ pairs: $\sigma = (s_0, a_0, s_1, a_1, ..., s_k, a_k)$
+
+\end{itemize}
+
+\subsubsection*{Assumption 1: Regret-based Boltzmann Rationality}
+The annotator is likely to prefer the segment with higher cumulative discounted optimal advantage
+$$P_{A^*}[\sigma^+ \succ \sigma^-] = \frac{\exp \sum_t \gamma^t A^*(s_t^+, a_t^+)}{\exp \sum_t \gamma^t A^*(s_t^+, a_t^+) + \exp \sum_t \gamma^t A^*(s_t^-, a_t^-)}$$
+
+\subsubsection*{Assumption 2: MaxEnt Objective for Annotator's Optimal Policy}
+The annotator's optimal policy is framed as the solution to an entropy-regularized RL objective
+$$\pi^* = \arg\max_\pi \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t (r(s_t, a_t) - \alpha \log \pi(a_t|s_t)) \right]$$
+$\alpha$ here is the temperature parameter that determines how strong the entropy effect is.\\
+
+
+\newpage
+\subsection{CPL with uAOT and No Reference Policy}
+
+\subsubsection*{Step 1: Substitute $\pi^*$ into the Preference Model using Bijection}
+Using the bijection induced from Assumption 2, substitute $A^*(s, a)$ for $\alpha \log \pi^*(a|s)$ in the preference/regret-based Boltzmann rationality formula:
+$$P[\sigma^+ \succ \sigma^-] = \frac{\exp \text{score}_{\pi^*}(\sigma^+)}{\exp \text{score}_{\pi^*}(\sigma^+) + \exp \text{score}_{\pi^*}(\sigma^-)} \quad \text{where } \text{score}_\pi(\sigma) = \sum_t \gamma^t \alpha \log \pi(a_t|s_t)$$
+
+\subsubsection*{Step 2: Parameterize our Policy as a Neural Network}
+Represent the policy we are tuning $\pi_\theta$ as a neural net. The policy network takes in a state and returns a distribution over the set of actions.
+
+\subsubsection*{Step 3: Compute Score For All Segments Under the Current Policy}
+This is the same score used in CPL. The score for a segment is the discounted entropy-regularized sum of log probabilities of each observed action under $\pi_\theta$. We compute these probabilities, $\pi_\theta(a_t|s_t)$, by feeding the observed state, $s_t$, through the policy network and observing the probability the policy network assigns to the action that was actually taken, $a_t$.\\
+We define the score for the positive segment of preference pair $i$ under policy $\pi_\theta$ as:
+$$u_\theta^i=\sum_{t}\gamma^t \alpha \log \pi_\theta(a_t^{(i,+)}|s_t^{(i,+)})$$
+The score for the rejected segment of preference pair $i$ under policy $\pi_\theta$:\\
+$$v_\theta^i=\sum_{t}\gamma^t \alpha \log \pi_\theta(a_t^{(i,-)}|s_t^{(i,-)})$$
+
+\subsubsection*{Step 4: Split the Preference Pairs into Two Sets}
+Separate each preference pair in $\mathcal{D}_{pref}$. Place the scores for all preferred segments into a single set $\{u_\theta^i\}$. Place the scores for all rejected segments into a separate set $\{v_\theta^i\}$.
+
+\subsubsection*{Step 5: Sort Scores for Preferred and Rejected Segments Independently}
+Sort the set of scores for preferred segments $\{u_\theta^i\}$ and set of scores for rejected segments $\{v_\theta^i\}$ independently from lowest to highest.
+
+$$u_\theta^{(1)} \leq u_\theta^{(2)} \leq ...\leq u_\theta^{(n)}$$
+$$v_\theta^{(1)} \leq v_\theta^{(2)} \leq ...\leq v_\theta^{(n)}$$
+
+The $i$-th lowest preferred score is matched with the $i$-th lowest rejected score. This is the one-dimensional optimal transport coupling via the northwest corner method.
+
+\subsubsection*{Step 6: Calculate CPL Loss with Respect to Order-matched Pairs}
+$$\mathcal{L}(\theta)=\frac{1}{n}\sum_{i=1}^{n}-\log \frac{\text{exp}(u_\theta^{(i)})}{\text{exp}(u_\theta^{(i)})+\text{exp}(v_\theta^{(i)})}$$
+
+\subsubsection*{Step 7: Backpropagate Loss Through Policy Network}
+Backpropagate through $\mathcal{L}$ to update $\pi_\theta$. The gradient flows through both the sorted scores and the CPL loss. Repeat from step 3 until policy convergence.\\ \\ \\
+
+
+\subsection{CPL with uAOT and a Reference Policy}
+
+The formalization of CPL with uAOT and a reference policy is nearly identical. Incorporating a reference policy into this formulation simply means redefining the scores in step 3 as:
+$$u_\theta^i = \sum_{t}\gamma^t \alpha \big(\log \pi_\theta(a_t^{(i,+)}|s_t^{(i,+)}) - \log \pi_{ref}(a_t^{(i,+)}|s_t^{(i,+)})\big)$$
+$$v_\theta^i = \sum_{t}\gamma^t \alpha \big(\log \pi_\theta(a_t^{(i,-)}|s_t^{(i,-)}) - \log \pi_{ref}(a_t^{(i,-)}|s_t^{(i,-)})\big)$$
+The other steps remain unchanged.
+
+
+
+\newpage
+\subsection{CPL with pAOT}
+
+\subsubsection*{Step 1: Substitute $\pi^*$ into the Preference Model using Bijection}
+Using the bijection induced from Assumption 2, substitute $A^*(s, a)$ for $\alpha \log \pi^*(a|s)$ in the preference/regret-based Boltzmann rationality formula:
+$$P[\sigma^+ \succ \sigma^-] = \frac{\exp \text{score}_{\pi^*}(\sigma^+)}{\exp \text{score}_{\pi^*}(\sigma^+) + \exp \text{score}_{\pi^*}(\sigma^-)} \quad \text{where } \text{score}_\pi(\sigma) = \sum_t \gamma^t \alpha \log \pi(a_t|s_t)$$
+
+\subsubsection*{Step 2: Parameterize our Policy as a Neural Network}
+Represent the policy we are tuning $\pi_\theta$ as a neural net.\\
+It takes in a state and returns a distribution over actions.
+
+\subsubsection*{Step 3: Obtain Reference Policy}
+Establish a reference policy $\pi_{ref}$. This can be done in various ways. Here we generate a reference policy by performing behavior cloning on all segments contained in our preference dataset, $\mathcal{D}_{pref}$.
+
+\subsubsection*{Step 4: Compute Per-Pair Margins Under Both Policies}
+For every preference pair $(\sigma^+,\sigma^-)\in\mathcal{D}_{pref}$, compute the margin between the preferred and rejected segment's scores. We define the score for a single segment $\sigma$ under policy $\pi$ as:
+$$\text{score}(\sigma;\,\pi)=\sum_{t} \gamma^t \alpha \log \pi(a_t \mid s_t)$$
+The margin under the current policy $\pi_{\theta}$ for pair $i$:
+$$u_\theta^i = \text{score}(\sigma_i^+;\,\pi_\theta) - \text{score}(\sigma_i^-;\,\pi_\theta)$$
+The margin under the reference policy $\pi_{ref}$ for pair $i$:
+$$v_{ref}^i = \text{score}(\sigma_i^+;\,\pi_{ref}) - \text{score}(\sigma_i^-;\,\pi_{ref})$$
+
+\subsubsection*{Step 5: Sort Margins}
+Sort the set of policy margins $\{u_\theta^i\}$ and set of reference margins $\{v_{ref}^i\}$ independently from lowest to highest.
+$$u_\theta^{(1)} \leq u_\theta^{(2)} \leq \ldots \leq u_\theta^{(n)}$$
+$$v_{ref}^{(1)} \leq v_{ref}^{(2)} \leq \ldots \leq v_{ref}^{(n)}$$
+The $i$-th lowest policy margin is matched with the $i$-th lowest reference margin. This is the one-dimensional optimal transport coupling via the northwest corner method.
+
+\subsubsection*{Step 6: Calculate CPL Loss with Respect to Order-matched Pairs}
+$$\mathcal{L}(\theta)=\frac{1}{n}\sum_{i=1}^{n}-\log \frac{\text{exp}(u_\theta^{(i)})}{\text{exp}(u_\theta^{(i)})+\text{exp}(v_{ref}^{(i)})}$$
+
+\subsubsection*{Step 7: Backpropagate Loss Through Policy Network}
+Backpropagate through $\mathcal{L}(\theta)$ to update $\pi_\theta$. The gradient flows through both the sorted scores and the CPL loss. Repeat from step 4 until policy convergence.
+\newpage
+
+\section{MetaWorld Experiments}
+
+\subsection{Environment}
+
+We evaluate all approaches on the MetaWorld task drawer-open-v2 \cite{yu2019metaworld}. We train and evaluate under two reward settings:
+
+\begin{itemize}
+    \item \textbf{State-dense}: Uses a 39-dimensional state vector with dense reward at every timestep.
+    \item \textbf{State-sparse}: Uses a 39-dimensional state vector with a binary reward given at end of episode.
+\end{itemize}
+
+We do not train on image-based observations in the current experiments. Doing so would test robustness to observation noise and is left as a possibility for future work.
+
+\subsection{Preference Data}
+
+The preference dataset contains 2,500 trajectory segments collected from a scripted expert policy with injected noise ($n{=}0.3$). Each segment covers the full episode horizon. Preference labels are assigned automatically by comparing the cumulative ground-truth reward of each segment pair.
+
+\subsection{Baseline Methods}
+
+% We compare the following methods:
+
+\begin{itemize}
+    \item \textbf{CPL No Bias}: contrastive preference learning with no bias regularization ($\lambda = 1.0$).
+    \item \textbf{CPL Biased}: contrastive preference learning with asymmetric bias regularization ($\lambda = 0.5$). % explain in 1-2 sentences what this regularization does/incentizes
+    % \item \textbf{CPL with uAOT and no $\pi_{\text{ref}}$}: our distributional variant using unpaired optimal transport on raw segment scores, with a reference policy for log-ratio normalization.
+    % \item \textbf{CPL with uAOT and $\pi_{\text{ref}}$}: our distributional variant using unpaired optimal transport on raw segment scores, with a reference policy for log-ratio normalization.
+
+    % \item \textbf{CPL with pAOT}: our distributional variant using paired optimal transport on per-pair margins relative to a reference policy.
+\end{itemize}
+
+\subsection{Reference Policy}
+
+We obtain $\pi_{\text{ref}}$ by running behavior cloning on all segments in the preference dataset $\mathcal{D}_{\text{pref}}$ for 200{,}000 gradient steps before any contrastive training begins. While any fixed reference policy would work, behavior cloning on the preference data is a natural choice because it requires no additional data and produces a policy whose log-probabilities are well-calibrated relative to the demonstration distribution.
+
+\subsection{Network Architecture}
+
+All policies are parameterized by a multi-layer perceptron with hidden dimensions $[512, 512]$. Tanh output activation is used with a dropout rate of 0.25.
+
+\subsection{Training Procedure}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+Method & $\pi_{\text{ref}}$ BC steps & $\pi_\theta$ BC warmup steps & Preference learning steps \\
+\midrule
+CPL     & N/A     & 200{,}000 & 300{,}000 \\
+CPL (biased)     & N/A     & 200{,}000 & 300{,}000 \\
+CPL+uAOT & N/A & 200{,}000 & 300{,}000 \\
+CPL+uAOT ($\pi_{\text{ref}}$) & 200{,}000 & 200{,}000 & 300{,}000 \\
+CPL+pAOT   & 200{,}000 & 200{,}000 & 300{,}000 \\
+\bottomrule
+\end{tabular}
+\caption{Training step budget per phase. $\pi_{\text{ref}}$ is trained with behavior cloning (BC) \cite{torabi2018bco}. BC warm-up then trains $\pi_\theta$ before preference learning begins.}
+\label{tab:training_phases}
+\end{table}
+
+All methods use the Adam optimizer with learning rate $10^{-4}$. The entropy temperature is set to $\alpha = 0.1$ for all methods. CPL (biased) uses $\lambda = 0.5$. This was an amount of bias regularization that performed well in the CPL paper \cite{hejna2024cpl}. For all other methods no bias regularization is applied ($\lambda = 1.0$).
+
+\subsection{Hardware}
+
+All experiments are run on NVIDIA A100 GPUs via Google Colab. Each run takes about 1.5 hours.
+
+\subsection{Evaluation}
+
+\paragraph{Primary metric: cumulative reward} We evaluate task performance by rolling out the trained policy in the MetaWorld environment for 25 episodes every 5,000 gradient steps and recording the average cumulative reward. This produces a reward learning curve over training and a final performance score.
+
+\paragraph{Secondary metric: accuracy on training pairs} We also track the fraction of training pairs for which the trained policy assigns a higher score to the preferred segment than to the rejected segment. The training pairs differ between approaches (raw pairs for baseline CPL, different OT-matched pairs for the AOT approaches). Thus, we are limited in our ability to directly compare approaches based on this metric. Still it is useful to see how well each method does in classifying pairs in its respective training set.
+
+\subsection{Hypotheses}
+
+Before running these experiments, we hypothesized:
+
+\begin{enumerate}
+    \item The distributionally aligned variants of CPL will outperform baseline CPL on average reward across both the dense and sparse reward settings.
+    \item CPL with pAOT will perform the best of the three distributional variants, since it preserves the pairing context of the original preference data while uAOT discards that context when sorting preferred and rejected scores into independent distributions.
+\end{enumerate}
+
+Both hypotheses concern task performance (reward) rather than the preservation of minority dominant strategies. Hypotheses that target CPL's failure to handle diverse dominant strategies are outlined in the Further Plans section, alongside the environment setup and evaluation metrics needed to test such hypotheses.
+
+\newpage
+\section{Results}
+
+% learning plots (reward)
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\textwidth]{mwResults.png}
+    \caption{Performance of different approaches on MetaWorld environments.}
+    \label{fig:mwResults}
+\end{figure}
+
+% final results table needed (reward)
+
+\begin{table}[h]
+    \centering
+    \caption{Final reward on MetaWorld environments across CPL variants.}
+    \label{tab:metaworld-results}
+    \begin{tabular}{|c|c|c|}
+        \hline
+        \textbf{Method} & \textbf{Final reward (dense)} & \textbf{Final reward (sparse)} \\
+        \hline
+        CPL (Biased) & 160.8887 & 131.1502 \\
+        \hline
+        CPL & 133.5253 & 86.4260 \\
+        \hline
+        CPL pAOT & 121.9249 & 110.8298 \\
+        \hline
+        CPL uAOT (with $\pi_{\text{ref}}$) & 24.0216 & 46.0679 \\
+        \hline
+        CPL uAOT & 22.0773 & 27.3755 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+% learning plot for cpl_uaot debug
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.85\textwidth]{mwResults_debug.png}
+    \caption{Performance of altered/debug version of uAOT that used the original preference pairs instead of OT-pairings. This run diagnoses if uAOT's poor performance is due to a pairing or optimization issue.}
+    \label{fig:mwResults_debug}
+\end{figure}
+
+
+\newpage
+\section{Discussion}
+
+CPL maximizes the average margin between preferred and rejected segments. This expectation-based objective can cause the policy to collapse to a single frequently-appearing dominant strategy while ignoring dominant strategies that appear less. By setting distribution-based learning objectives we aim to produce policies that achieve competitive performance while maintaining support for minority dominant strategies.
+
+Looking at cumulative reward, CPL with pAOT is competitive with baseline CPL. In the dense setting, pAOT trails unbiased CPL slightly (121.9 vs.\ 133.5), but in the sparse setting pAOT outperforms unbiased CPL by a meaningful margin (110.8 vs.\ 86.4). This suggests that the distributional objective provides a more useful training signal in sparse reward landscapes.
+
+Biased CPL achieves the highest reward in both settings, consistent with the findings of the original CPL paper \cite{hejna2024cpl}.
+
+CPL with uAOT performs extremely poorly in both reward settings, with task reward collapsing as soon as the BC warmup phase ends and contrastive preference learning begins. Incorporating a reference policy into uAOT improves results somewhat, but performance remains far below all other methods. To find the cause of the collapse, we ran CPL uAOT using the original preference pairs in place of the OT-matched pairs (Figure~\ref{fig:mwResults_debug}). This variant performs comparably to baseline CPL, clearly showing that the performance crash is driven by the OT-pairing itself, not by a bug elsewhere in the implementation. Considering how severe the performance drop is and how well uAOT performed in the original AOT paper, we assume there is a fault in our implementation. We doubt the performance is reflective of the approach itself.
+
+
+\section{Further Plans}
+
+The MetaWorld experiments do not meaningfully test the ability to maintain multiple dominant strategies. drawer-open-v2 likely has a single dominant strategy and there is no guarantee that there are minority dominant strategies in the preference data. By moving to an environment explicitly constructed to contain multiple distinct dominant strategies we can better highlight the advantages of distributional alignment.
+
+\subsection{Environment and Data}
+
+We will adopt the grid-world environment from Farajzadeh et al.'s paper on pluralistic stochastic dominance in imitation learning \cite{farajzadeh2025psd}. The environment is designed so that several highly distinct strategies are all dominant. Crucially, some dominant strategies will be minority strategies, always preferred when they appear, but rare enough in the dataset that an expectation-based agent could ignore them without much loss. A synthetic annotator will assign preference labels based on ground-truth cumulative reward.
+
+\subsection{Evaluation Metrics}
+
+% is this "area between the curve" measure different from the loss functions used by cpl_uaot and cpl_paot?
+% if so check with Yaswanth to see which we should use
+
+\paragraph{Primary: FSD loss} Our primary metric measures violations of first-order stochastic dominance between the two score distributions that each method optimizes. For uAOT, this is the preferred-segment score distribution versus the rejected-segment score distribution. For pAOT, this is the per-pair policy-margin distribution versus the per-pair reference-margin distribution. Because FSD loss is computed with respect to each method’s own distributions, it cannot be used to meaningfully compare uAOT against pAOT. However, it is directly comparable within each method against CPL evaluated on the same distributions. These are the loss functions explicitly minimized by uAOT and pAOT.
+
+\paragraph{Secondary: Preference accuracy} We will report the fraction of the original annotator preference pairs for which the trained policy assigns a higher score to the preferred segment than to the rejected segment.
+
+\paragraph{Tertiary: Ground-truth reward} We additionally track average cumulative reward under the environment’s ground-truth reward function. If the AOT methods are competitive with CPL in terms of reward while substantially outperforming CPL in FSD loss and minority-pair accuracy, they should be viable for deployment in many real-world settings.
+
+\subsection{Baselines and Hyperparameters}
+
+We will compare behavior cloning, CPL ($\lambda=1.0$), CPL ($\lambda=0.5$), and all three AOT variants.
+
+Hyperparameters will follow the MetaWorld setup: the same MLP architecture, Adam with learning rate $10^{-4}$, and the same three-phase training structure (BC for $\pi_{\text{ref}}$, BC warmup for $\pi_\theta$, then contrastive learning).
+
+\subsection{Hypotheses}
+
+\begin{enumerate}
+    \item CPL with uAOT and CPL with pAOT will each achieve lower FSD loss than baseline CPL on their respective score distributions, demonstrating that distributional alignment successfully enforces stochastic dominance.
+    \item The AOT variants will achieve higher preference accuracy on the original annotator pairs than CPL, particularly on pairs involving minority dominant strategies, where CPL’s collapsed policy is expected to fail.
+    \item Policies trained with AOT-based objectives will assign more probability mass to minority dominant strategies than CPL-trained policies, visible in rollout diagrams analogous to those in Figure 4 of Farajzadeh et al. \cite{farajzadeh2025psd}.
+\end{enumerate}
+
+This experiment will serve as a proof of concept that AOT-based distributional alignment can preserve minority dominant strategies whereas CPL collapses to a single strategy.
+
+\newpage
+\begin{thebibliography}{9}
+
+\bibitem{rafailov2023dpo}
+Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn.
+\newblock Direct preference optimization: Your language model is secretly a reward model.
+\newblock In \emph{Advances in Neural Information Processing Systems 36 (NeurIPS)}, 2023.
+
+\bibitem{hejna2024cpl}
+Joey Hejna, Rafael Rafailov, Harshit Sikchi, Chelsea Finn, Scott Niekum, W. Bradley Knox, and Dorsa Sadigh.
+\newblock Contrastive preference learning: Learning from human feedback without reinforcement learning.
+\newblock In \emph{The Twelfth International Conference on Learning Representations (ICLR)}, 2024.
+
+\bibitem{melnyk2024aot}
+Igor Melnyk, Youssef Mroueh, Brian Belgodere, Mattia Rigotti, Apoorva Nitsure, Mikhail Yurochkin, Kristjan Greenewald, Jiri Navratil, and Jarret Ross.
+\newblock Distributional preference alignment of {LLMs} via optimal transport.
+\newblock In \emph{Advances in Neural Information Processing Systems 37 (NeurIPS)}, 2024.
+
+\bibitem{farajzadeh2025psd}
+Ali Farajzadeh, Danyal Saeed, Syed M. Abbas, Rushit Shah, Aadirupa Saha, and Brian D. Ziebart.
+\newblock Imitation beyond expectation using pluralistic stochastic dominance.
+\newblock In \emph{Advances in Neural Information Processing Systems 38 (NeurIPS)}, 2025.
+
+\bibitem{yu2019metaworld}
+Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Karol Hausman, Chelsea Finn, and Sergey Levine.
+\newblock Meta-{W}orld: A benchmark and evaluation for multi-task and meta reinforcement learning.
+\newblock In \emph{Conference on Robot Learning (CoRL)}, 2019.
+
+\bibitem{torabi2018bco}
+Faraz Torabi, Garrett Warnell, and Peter Stone.
+\newblock Behavioral cloning from observation.
+\newblock In \emph{Proceedings of the 27th International Joint Conference on Artificial Intelligence (IJCAI)}, pages 4950--4957, 2018.
+
+\end{thebibliography}
+
+
+\end{document}

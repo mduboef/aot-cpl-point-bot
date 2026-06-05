@@ -147,10 +147,10 @@ def trainCPL(
 	gamma=1.0,
 	bias=1.0,
 	device='cpu',
-	logInterval=500,
+	logInterval=1000,
 	writer=None,
 	prefDataTest=None,
-	evalInterval=500,
+	evalInterval=1000,
 ):
 	n = len(prefData)
 
