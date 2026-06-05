@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from env.pointbot import PointBot
 from mlp import MLPGaussianActor
 from algos.bc import trainBC
+from algos.cpl import trainCPL
 from algos.cpl_paot import trainCPLpAOT
 from plotRollouts import computeStats, plotDemos
 from evaluate import preferenceAccuracy
@@ -17,8 +18,6 @@ from evaluate import preferenceAccuracy
 # pretty-prints overall and per-strategy-type preference accuracy
 def printAccuracy(label, acc):
 	print(f'  {label}: {acc["overall"]:.3f} overall  ({acc["nPairs"]} pairs)')
-	for st, d in acc['perType'].items():
-		print(f'    type {st}: {d["accuracy"]:.3f}  ({d["nPairs"]} pairs)')
 
 
 def rollout(env, policy):
@@ -118,9 +117,9 @@ def main():
 		)
 
 
-	# TODO train CPL policy
+	# train baseline CPL policy (no reference policy, λ = contrastive_bias)
 	elif args.method == 'cpl':
-		# phase 1: BC warmup of π_θ
+		# phase 2: BC warmup of π_θ
 		if cfg.get('bc_warmup_steps', 0) > 0:
 			print('\n--- phase 2: BC warmup of π_θ ---')
 			policy = trainBC(
@@ -131,13 +130,29 @@ def main():
 				device      = device,
 				logInterval = cfg['log_interval'],
 			)
-		# TODO phase 2: cpl-based training with no bias regularization
-		raise NotImplementedError(f'{args.method} is not implemented')
+
+		# phase 3: CPL contrastive training
+		print('\n--- phase 3: CPL contrastive training ---')
+		policy = trainCPL(
+			policy, prefDataTrain,
+			cplSteps    = cfg['cpl_steps'],
+			batchSize   = cfg['cpl_batch_size'],
+			lr          = cfg['lr'],
+			alpha       = cfg['alpha'],
+			gamma       = cfg['gamma'],
+			bias        = cfg['contrastive_bias'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+			writer       = writer,
+			prefDataTest = prefDataTest,
+			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+		)
 
 
-	# TODO train CPL policy with beta regularization of 0.5
+	# train conservative CPL policy (no reference policy, λ = contrastive_bias = 0.5)
+	# identical pipeline to the cpl branch; the only difference is contrastive_bias in the config
 	elif args.method == 'cpl_biased':
-		# phase 1: BC warmup of π_θ
+		# phase 2: BC warmup of π_θ
 		if cfg.get('bc_warmup_steps', 0) > 0:
 			print('\n--- phase 2: BC warmup of π_θ ---')
 			policy = trainBC(
@@ -148,8 +163,23 @@ def main():
 				device      = device,
 				logInterval = cfg['log_interval'],
 			)
-		# TODO phase 2: cpl-based training with bias regularization of 0.5
-		raise NotImplementedError(f'{args.method} is not implemented')
+
+		# phase 3: CPL contrastive training with λ = 0.5
+		print('\n--- phase 3: CPL contrastive training (λ = 0.5) ---')
+		policy = trainCPL(
+			policy, prefDataTrain,
+			cplSteps    = cfg['cpl_steps'],
+			batchSize   = cfg['cpl_batch_size'],
+			lr          = cfg['lr'],
+			alpha       = cfg['alpha'],
+			gamma       = cfg['gamma'],
+			bias        = cfg['contrastive_bias'],
+			device      = device,
+			logInterval = cfg['log_interval'],
+			writer       = writer,
+			prefDataTest = prefDataTest,
+			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+		)
 
 
 	# ! CPL_pAOT SEEMS TO BE BUGGED! THE ROLLOUTS ALL GO WAY OFF COURSE IN THE SAME DIRECTION
@@ -236,7 +266,7 @@ def main():
 		raise NotImplementedError(f'{args.method} is not implemented')
 
 	# generate rollouts
-	nRollouts = cfg.get('eval_rollouts', 25)
+	nRollouts = 25
 	rollouts, evalStats = [], []
 	for i in range(nRollouts):
 		traj = rollout(env, policy)
@@ -256,8 +286,8 @@ def main():
 	print('\n--- preference accuracy on raw (non-OT) pairs ---')
 	trainAcc = preferenceAccuracy(policy, prefDataTrain, alphaEval, gammaEval, device)
 	testAcc  = preferenceAccuracy(policy, prefDataTest,  alphaEval, gammaEval, device)
-	printAccuracy('train', trainAcc)
-	printAccuracy('test',  testAcc)
+	print(f'  train: {trainAcc["overall"]:.3f} overall  ({trainAcc["nPairs"]} pairs)')
+	print(f'  test:  {testAcc["overall"]:.3f} overall  ({testAcc["nPairs"]} pairs)')
 	prefStats = {'train': trainAcc, 'test': testAcc}
 
 	# TODO primary metric: FSD violation loss (pAOT and uAOT pairings).

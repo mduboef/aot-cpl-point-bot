@@ -1,180 +1,123 @@
 import os
-import sys
 import pickle
 import itertools
 import numpy as np
 
-# feature vector layout (from env/pointbot.py augmentFeature):
+# single-annotator reward on RAW (unnormalized) features (from env/pointbot.py augmentFeature):
 #   feature[0] = grey_steps      (timesteps inside an obstacle)
-#   feature[1] = white_steps     (timesteps in free space)
-#   feature[2] = cumulative_dist (sum of ||state - GOAL|| over trajectory)
+#   feature[1] = white_steps     (timesteps in free space)  -- unused, weight 0
+#   feature[2] = cumulative_dist (sum of ||state - GOAL|| over the trajectory)
+#
+# reward(sigma) = -(GREY_WEIGHT * grey_steps + DIST_WEIGHT * cumulative_dist)
+# the ratio GREY_WEIGHT / DIST_WEIGHT ~= 160 lands the around/mid/through corridors
+# (demo types 1/2/3) within ~5% of each other while types 4/5 are clearly worse and rejected.
 
-# normalization constants — bring each feature into [0, 1] before applying weights
-# grey/white: divided by HORIZON (100); dist: divided by observed max across all demos (~11554)
-NORM_GREY  = 100.0
-NORM_WHITE = 100.0
-NORM_DIST  = 12000.0
+WHITE_WEIGHT = 0.0
+GREY_WEIGHT = 160.0
+DIST_WEIGHT = 1.0
 
-# synthetic annotator reward (applied to normalized features):
-#   reward(σ) = w_grey * (grey/NORM_GREY) + w_white * (white/NORM_WHITE) + w_dist * (dist/NORM_DIST)
-
-ANNOTATORS = {
-	1: {'grey': -0.95, 'white':  0.0,  'dist': -0.05},
-	2: {'grey': -0.70, 'white':  0.0,  'dist': -0.30},
-	3: {'grey':  0.0,  'white':  0.0,  'dist': -1.00},
-	4: {'grey':  0.0,  'white': -0.70, 'dist': -0.30},
-	5: {'grey':  0.0,  'white': -0.95, 'dist': -0.05},
-}
+DEMO_TYPES = range(1, 6)
 
 
-def loadDemos(directory):
-	demos = []
-	for fname in sorted(os.listdir(directory)):
-		if fname.endswith('.pkl'):
-			with open(os.path.join(directory, fname), 'rb') as f:
-				data = pickle.load(f)
-			demos.append((fname, data))
-	return demos
-
-
-def annotatorReward(feature, annotator):
+# single-annotator reward on raw features; white_steps gets no weight
+def reward(feature):
 	greySteps, whiteSteps, cumDist = feature
-	return (annotator['grey']  * (greySteps  / NORM_GREY)
-		+   annotator['white'] * (whiteSteps / NORM_WHITE)
-		+   annotator['dist']  * (cumDist    / NORM_DIST))
+	return -(GREY_WEIGHT * greySteps + DIST_WEIGHT * cumDist)
 
 
-def extractTrajectory(data, kind):
-	# kind: 'Good' or 'Bad'
-	states  = data[f'{kind}_states']
-	actions = data[f'{kind}_actions']
-	feature = data[f'{kind}_feature']
+# trims a demo's Good trajectory so actions has length T and states has length T+1
+def extractTrajectory(data):
+	states  = data['Good_states']
+	actions = data['Good_actions']
+	feature = data['Good_feature']
 	T = len(actions)
 	trimmedStates  = np.array(states[:T + 1])  # (T+1, 4)
 	trimmedActions = np.array(actions)          # (T, 2)
 	return trimmedStates, trimmedActions, feature
 
 
-def generatePairs(trajectories, annotator, strategyType):
-	rewards = [annotatorReward(f, annotator) for _, _, f in trajectories]
+# loads every Good demo across all corridor folders for one split ('train' or 'test')
+# returns one flat pool of items, each tagged with its source corridor type and reward
+def loadDemos(dataDir, split):
+	items = []
+	for typeIdx in DEMO_TYPES:
+		typeDir = os.path.join(dataDir, f'{typeIdx}_{split}')
+		if not os.path.isdir(typeDir):
+			continue
+		for fname in sorted(os.listdir(typeDir)):
+			if not fname.endswith('.pkl'):
+				continue
+			with open(os.path.join(typeDir, fname), 'rb') as f:
+				data = pickle.load(f)
+			states, actions, feature = extractTrajectory(data)
+			items.append({
+				'fname':   fname,
+				'type':    typeIdx,
+				'states':  states,
+				'actions': actions,
+				'feature': feature,
+				'reward':  reward(feature),
+			})
+	return items
 
+
+# builds hard-labeled preference pairs over the whole pool (every unordered pair); the
+# higher-reward demo is the preferred (pos) one. exact reward ties are skipped.
+def generatePairs(items):
 	pairs = []
-	for i, j in itertools.combinations(range(len(trajectories)), 2):
-		if rewards[i] > rewards[j]:
-			posIdx, negIdx = i, j
-		elif rewards[j] > rewards[i]:
-			posIdx, negIdx = j, i
+	for a, b in itertools.combinations(range(len(items)), 2):
+		if items[a]['reward'] > items[b]['reward']:
+			posItem, negItem = items[a], items[b]
+		elif items[b]['reward'] > items[a]['reward']:
+			posItem, negItem = items[b], items[a]
 		else:
-			continue  # skip ties
-
-		posStates,  posActions,  posFeat  = trajectories[posIdx]
-		negStates,  negActions,  negFeat  = trajectories[negIdx]
+			continue  # skip exact ties
 
 		pairs.append({
-			'pos_states':    posStates,
-			'pos_actions':   posActions,
-			'pos_feature':   posFeat,
-			'pos_reward':    rewards[posIdx],
-			'neg_states':    negStates,
-			'neg_actions':   negActions,
-			'neg_feature':   negFeat,
-			'neg_reward':    rewards[negIdx],
-			'strategy_type': strategyType,
+			'pos_states':  posItem['states'],
+			'pos_actions': posItem['actions'],
+			'pos_feature': posItem['feature'],
+			'pos_reward':  posItem['reward'],
+			'pos_type':    posItem['type'],
+			'neg_states':  negItem['states'],
+			'neg_actions': negItem['actions'],
+			'neg_feature': negItem['feature'],
+			'neg_reward':  negItem['reward'],
+			'neg_type':    negItem['type'],
 		})
-
 	return pairs
+
+
+# prints the per-corridor reward structure so the near-optimal trio (types 1/2/3) and the
+# always-rejected tail (types 4/5) are visible before any training consumes the data
+def reportCorridors(items, split):
+	byType = {}
+	for it in items:
+		byType.setdefault(it['type'], []).append(-it['reward'])  # cost = -reward, lower is better
+
+	globalMin = min(min(costs) for costs in byType.values())
+	print(f'\n=== {split} corridor structure (best cost = {globalMin:.0f}) ===')
+	print(f'  {"type":>4} {"demos":>6} {"bestCost":>10} {"%aboveBest":>11}')
+	for t in sorted(byType):
+		best = min(byType[t])
+		pct  = 100 * (best / globalMin - 1)
+		print(f'  {t:>4} {len(byType[t]):>6} {best:>10.0f} {pct:>10.1f}%')
 
 
 def main():
 	dataDir = os.path.dirname(os.path.abspath(__file__))
 
-	trainingPairs = []
+	for split in ['train', 'test']:
+		items = loadDemos(dataDir, split)
+		pairs = generatePairs(items)
 
+		reportCorridors(items, split)
+		print(f'{split}: {len(items)} demos -> {len(pairs)} pairs')
 
-	print("\n=== Generating training preference pairs ===")
-
-	for typeIdx in range(1, 6):
-		typeDir    = os.path.join(dataDir, f'{typeIdx}_train')
-		annotator  = ANNOTATORS[typeIdx]
-		demos      = loadDemos(typeDir)
-
-		# pool only the Good trajectories from every demo in this type
-		trajectories = []
-		for fname, data in demos:
-			states, actions, feature = extractTrajectory(data, 'Good')
-			trajectories.append((states, actions, feature))
-
-		pairs = generatePairs(trajectories, annotator, typeIdx)
-		trainingPairs.extend(pairs)
-
-		print(f"type {typeIdx}: {len(demos)} demos  "
-			f"→ {len(pairs)} pairs")
-
-		ranked = sorted(
-			zip(demos, trajectories),
-			key=lambda x: annotatorReward(x[1][2], annotator),
-			reverse=True,
-		)
-		print(f"  {'rank':<5} {'file':<40} {'grey':>5} {'white':>6} {'dist':>8} {'reward':>9}")
-		for rank, ((fname, _), (_, _, feat)) in enumerate(ranked, 1):
-			reward = annotatorReward(feat, annotator)
-			print(f"  {rank:<5} {fname:<40} {feat[0]:>5} {feat[1]:>6} {feat[2]:>8.0f} {reward:>9.4f}")
-		print()
-
-	print(f"\ntotal pairs: {len(trainingPairs)}")
-
-	savePath = os.path.join(dataDir, 'trainPreferences.pkl')
-	with open(savePath, 'wb') as f:
-		pickle.dump(trainingPairs, f)
-	print(f"saved → {savePath}")
-
-
-
-
-
-
-
-
-
-	print("\n=== Generating testing preference pairs ===")
-
-
-	testingPairs = []
-
-	for typeIdx in range(1, 6):
-		typeDir    = os.path.join(dataDir, f'{typeIdx}_test')
-		annotator  = ANNOTATORS[typeIdx]
-		demos      = loadDemos(typeDir)
-
-		# pool only the Good trajectories from every demo in this type
-		trajectories = []
-		for fname, data in demos:
-			states, actions, feature = extractTrajectory(data, 'Good')
-			trajectories.append((states, actions, feature))
-
-		pairs = generatePairs(trajectories, annotator, typeIdx)
-		testingPairs.extend(pairs)
-
-		print(f"type {typeIdx}: {len(demos)} demos  "
-			f"→ {len(pairs)} pairs")
-
-		ranked = sorted(
-			zip(demos, trajectories),
-			key=lambda x: annotatorReward(x[1][2], annotator),
-			reverse=True,
-		)
-		print(f"  {'rank':<5} {'file':<40} {'grey':>5} {'white':>6} {'dist':>8} {'reward':>9}")
-		for rank, ((fname, _), (_, _, feat)) in enumerate(ranked, 1):
-			reward = annotatorReward(feat, annotator)
-			print(f"  {rank:<5} {fname:<40} {feat[0]:>5} {feat[1]:>6} {feat[2]:>8.0f} {reward:>9.4f}")
-		print()
-
-	print(f"\ntotal pairs: {len(testingPairs)}")
-
-	savePath = os.path.join(dataDir, 'testPreferences.pkl')
-	with open(savePath, 'wb') as f:
-		pickle.dump(testingPairs, f)
-	print(f"saved → {savePath}")
+		savePath = os.path.join(dataDir, f'{split}Preferences.pkl')
+		with open(savePath, 'wb') as f:
+			pickle.dump(pairs, f)
+		print(f'saved -> {savePath}')
 
 
 if __name__ == '__main__':
