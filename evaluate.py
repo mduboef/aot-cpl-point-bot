@@ -99,3 +99,67 @@ def paotLoss(policy, refPolicy, prefData, alpha=0.1, gamma=1.0, device='cpu'):
 		'maxShortfall':  maxShortfall,
 		'otAccuracy':    float(otAccuracy.item()),
 	}
+
+
+# computes the uAOT loss of a trained policy over a full preference set, plus first-order
+# stochastic dominance (FSD) violation diagnostics. mirrors the training objective in
+# algos/cpl_uaot.py (pool preferred and rejected segment scores, sort each independently,
+# match by quantile, CPL loss on the matched pairs) but runs once over every pair with no
+# gradients. a high loss / high violation rate means the trained policy's preferred-score
+# distribution fails to stochastically dominate its rejected-score distribution.
+#
+# refPolicy is optional and mirrors the two uAOT variants:
+#   refPolicy=None  → raw segment scores (no-reference uAOT objective).
+#   refPolicy given → log-ratio scores  u = score(σ+;π_θ) - score(σ+;π_ref), etc.
+# train.py passes refPolicy so this metric uses log-ratio scores for every method, giving a
+# common (ease-of-imitation-normalized) yardstick comparable across BC/CPL/pAOT/uAOT.
+#
+# after independent sorting, a violation at quantile i is u_sorted[i] < v_sorted[i] (the
+# preferred score fails to dominate the rejected score there). frequency = fraction of
+# quantiles violated; severity = mean / max shortfall (v_sorted - u_sorted) over violations.
+def uaotLoss(policy, prefData, refPolicy=None, alpha=0.1, gamma=1.0, device='cpu'):
+	# imported lazily: algos.cpl_uaot imports preferenceAccuracy from this module at load
+	# time, so a top-level import here would be circular
+	from algos.cpl_uaot import _cachePrefTensors, _batchPosNegScores, computeRefScores, uaot_loss
+
+	policy = policy.to(device)
+	policy.eval()
+
+	cache = _cachePrefTensors(prefData, device)
+	n = len(cache)
+
+	with torch.no_grad():
+		# pooled per-segment policy scores over every pair (one batched forward pass)
+		posScores, negScores = _batchPosNegScores(policy, cache, range(n), alpha, gamma)  # (n,) each
+
+		# reference variant: subtract frozen reference scores → log-ratio scores
+		if refPolicy is not None:
+			refPolicy = refPolicy.to(device)
+			refPolicy.eval()
+			posRef, negRef = computeRefScores(refPolicy, cache, alpha, gamma, device)  # (n,) CPU
+			u = posScores - posRef.to(device)
+			v = negScores - negRef.to(device)
+		else:
+			u, v = posScores, negScores
+
+		loss, otAccuracy = uaot_loss(u, v)
+
+		# FSD violation diagnostics on the sorted (quantile-matched) scores
+		uSorted   = torch.sort(u).values
+		vSorted   = torch.sort(v).values
+		shortfall = vSorted - uSorted          # > 0 where the policy violates dominance
+		violated  = shortfall > 0
+		nViolations = int(violated.sum().item())
+		meanShortfall = float(shortfall[violated].mean().item()) if nViolations else 0.0
+		maxShortfall  = float(shortfall[violated].max().item())  if nViolations else 0.0
+
+	return {
+		'uaotLoss':      float(loss.item()),
+		'usedRef':       refPolicy is not None,
+		'nPairs':        n,
+		'nViolations':   nViolations,
+		'violationFreq': nViolations / n if n else 0.0,
+		'meanShortfall': meanShortfall,
+		'maxShortfall':  maxShortfall,
+		'otAccuracy':    float(otAccuracy.item()),
+	}

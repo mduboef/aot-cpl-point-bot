@@ -11,8 +11,9 @@ from mlp import MLPGaussianActor
 from algos.bc import trainBC
 from algos.cpl import trainCPL
 from algos.cpl_paot import trainCPLpAOT
+from algos.cpl_uaot import trainCPLuAOT
 from plotRollouts import computeStats, plotDemos
-from evaluate import preferenceAccuracy, paotLoss
+from evaluate import preferenceAccuracy, paotLoss, uaotLoss
 
 
 # pretty-prints overall and per-strategy-type preference accuracy
@@ -47,15 +48,17 @@ def getRunDir(modelsDir, methodName):
 	return runDir
 
 
-def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, paotStats=None):
+def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, paotStats=None, uaotStats=None):
 	# policy weights
 	torch.save(policy.state_dict(), os.path.join(runDir, 'policy.pt'))
 
 	# per-rollout stats plus raw-pair preference accuracy on train and test sets, and
-	# (when provided) the pAOT loss / FSD-violation diagnostics on train and test
+	# (when provided) the pAOT / uAOT loss + FSD-violation diagnostics on train and test
 	results = {'rollouts': evalStats, 'preferenceAccuracy': prefStats}
 	if paotStats is not None:
 		results['paotLoss'] = paotStats
+	if uaotStats is not None:
+		results['uaotLoss'] = uaotStats
 	with open(os.path.join(runDir, 'eval_stats.json'), 'w') as f:
 		json.dump(results, f, indent=2)
 
@@ -252,11 +255,24 @@ def main():
 			)
 
 
-		# CPL uAOT
-		# TODO train using CPL uAOT
-		elif args.method == 'cpl_uaot':
-			print('\n--- CPL uAOT on π_θ ---')
-			raise NotImplementedError(f'{args.method} is not implemented')
+		# CPL uAOT (no reference policy → raw scores; cpl_uaot_ref → log-ratio scores)
+		elif args.method in ('cpl_uaot', 'cpl_uaot_ref'):
+			useRef = args.method == 'cpl_uaot_ref'
+			print(f'\n--- CPL uAOT{" (ref)" if useRef else ""} on π_θ ---')
+			policy = trainCPLuAOT(
+				policy, prefDataTrain,
+				refPolicy   = refPolicy if useRef else None,
+				uaotSteps   = cfg['cpl_uaot_steps'],
+				batchSize   = cfg['uaot_batch_size'],
+				lr          = cfg['lr'],
+				alpha       = cfg['alpha'],
+				gamma       = cfg['gamma'],
+				device      = device,
+				logInterval = cfg['log_interval'],
+				writer       = writer,
+				prefDataTest = prefDataTest,
+				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+			)
 
 
 		else:
@@ -298,14 +314,23 @@ def main():
 	paotStats = {'train': paotTrain, 'test': paotTest}
 
 
-	# primary metric 2: uAOT loss of the trained policy (any method) making use of π_ref
-	# TODO (do later, not yet) calculate uAOT loss on training data
-	# TODO (do later, not yet) calculate uAOT loss on testing data
+	# primary metric 2: uAOT loss of the trained policy (any method), measuring first-order
+	# stochastic dominance violations between the pooled preferred- and rejected-score
+	# distributions. computed with π_ref (log-ratio scores) so the metric is a common,
+	# ease-of-imitation-normalized yardstick across every method, regardless of how it trained.
+	print('\n--- uAOT loss vs π_ref (FSD violations) ---')
+	uaotTrain = uaotLoss(policy, prefDataTrain, refPolicy, alphaEval, gammaEval, device)
+	uaotTest  = uaotLoss(policy, prefDataTest,  refPolicy, alphaEval, gammaEval, device)
+	for label, p in [('train', uaotTrain), ('test', uaotTest)]:
+		print(f'  {label}: uaot_loss {p["uaotLoss"]:.4f}  '
+			f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
+			f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
+	uaotStats = {'train': uaotTrain, 'test': uaotTest}
 
 	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
-	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, paotStats)
+	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, paotStats, uaotStats)
 	writer.close()
 	print(f'\nresults saved → {runDir}')
 
