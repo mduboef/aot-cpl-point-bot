@@ -170,6 +170,7 @@ def main():
 
 	# train using pure BC
 	if  args.method == 'bc':
+		print('\n--- Pure BC training of π_θ ---')
 		policy = trainBC(
 			policy, prefDataTrain,
 			bcSteps     = cfg['bc_steps'],

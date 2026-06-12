@@ -134,7 +134,7 @@ def plotRankedRollouts(items, split, savePath):
 
 	ax.set_xlabel('x position')
 	ax.set_ylabel('y position')
-	ax.set_title(f'Ranked Rollouts — {split} ({n} demos)')
+	ax.set_title(f'{split}ing Demos Colored by Reward Rank ({n} demos)')
 	ax.legend(fontsize=8, loc='upper right')
 	ax.set_aspect('equal')
 	ax.grid(True, alpha=0.25)

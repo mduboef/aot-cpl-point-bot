@@ -64,6 +64,8 @@ def plotDemos(ax, demos, title):
 	print(f"  {'file':<42} {'type':<5} {'steps':>6}  {'obs_steps':>9}  {'reward':>10}")
 	print(f"  {'-'*42} {'-'*5} {'-'*6}  {'-'*9}  {'-'*10}")
 
+	rewardSum = 0
+
 	for i, (fname, data) in enumerate(demos):
 		color = colors[i]
 
@@ -72,12 +74,10 @@ def plotDemos(ax, demos, title):
 		ax.plot(goodStates[:, 0], goodStates[:, 2],
 				color=color, linewidth=1.8, label=fname.removesuffix('.pkl'))
 		print(f"  {fname:<42} {'Good':<5} {tg:>6}  {obsG:>9}  {rewG:>10.1f}")
+		rewardSum += rewG
 
-		# badStates = trimStates(data['Bad_states'], data['Bad_actions'])
-		# tb, obsB, rewB = computeStats(data['Bad_states'], data['Bad_actions'])
-		# ax.plot(badStates[:, 0], badStates[:, 2],
-		# 		color=color, linewidth=1.8, linestyle='--', alpha=0.55)
-		# print(f"  {fname:<42} {'Bad':<5} {tb:>6}  {obsB:>9}  {rewB:>10.1f}")
+	# print avg reward
+	print(f"\n  Avg rollout reward: {rewardSum}")
 
 	# mark start and goal
 	ax.scatter(START_POS[0], START_POS[1], c='green', s=120, zorder=6, marker='o', label='Start')

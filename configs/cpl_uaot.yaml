@@ -1,1 +1,5 @@
 ref_bc_steps: 20000
+bc_warmup_steps: 10000
+cpl_uaot_steps: 20000
+log_interval: 500
+eval_interval: 500
