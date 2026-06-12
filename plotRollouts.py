@@ -77,7 +77,7 @@ def plotDemos(ax, demos, title):
 		rewardSum += rewG
 
 	# print avg reward
-	print(f"\n  Avg rollout reward: {rewardSum}")
+	print(f"\n  Avg reward: {rewardSum/len(demos)}")
 
 	# mark start and goal
 	ax.scatter(START_POS[0], START_POS[1], c='green', s=120, zorder=6, marker='o', label='Start')
