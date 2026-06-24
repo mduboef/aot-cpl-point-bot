@@ -41,26 +41,45 @@ cpl_aot_point_bot/
         pointbot_const.py    # environment constants and obstacle layout
         obstacle.py          # Obstacle and ComplexObstacle classes
     data/
-        training_demos/      # pkl demonstration files used to generate preferences
-        test_demos/          # pkl demonstration files used for evaluation rollouts
-        preferenceGen.py     # synthetic annotator: generates contrastive preference pairs
-    networks/
-        mlp.py               # MLP policy network (Gaussian continuous actions)
+        allData/             # all demos, one folder per corridor type (1-5)
+            1/ ... 5/        #   features_states_actions_<i>.pkl, states_<i>.txt, visualization_<label>_<i>.png
+        trainingData/        # training split (per type) + trainPreferences.pkl
+        testingData/         # testing split (per type) + testPreferences.pkl
+        splitData.py         # splits allData 50/50 into trainingData and testingData
+        preferenceGen.py     # synthetic annotator: generates contrastive preference pairs per split
+    algos/                   # BC, CPL, CPL+pAOT, CPL+uAOT loss implementations
+    configs/                 # per-method yaml hyperparameter configs
+    models/                  # saved runs (policy weights, eval stats, tensorboard logs)
+    demoPlots/               # generated demo / rollout visualizations
+    mlp.py                   # MLP policy network (Gaussian continuous actions)
     train.py                 # main training script (BC warmup + contrastive phase)
     evaluate.py              # evaluation: FSD loss, preference accuracy, reward, rollouts
-    plot_rollouts.py         # visualize trajectories over the PointBot obstacle map
+    plotRollouts.py          # visualize trajectories over the PointBot obstacle map
+    inspectRewards.py        # rank/plot demos by reward for a split (training | testing | all)
     requirements.txt
     README.md
 ```
+
+## Data Layout and Demo Labels
+
+`data/allData/<type>/` holds every demo for corridor type `1`–`5`. Each demo `i` is stored
+as `features_states_actions_<i>.pkl` alongside a `states_<i>.txt` and a
+`visualization_<label>_<i>.png` whose `<label>` is `Optimal`, `Good`, or `Bad`. Analysis and preference generation keep **Good** and **Optimal** demos and **ignore Bad** ones.
+
+`splitData.py` copies a reproducible 50/50 split of `allData` into `data/trainingData/` and
+`data/testingData/` (same per-type folder structure). `preferenceGen.py` then builds
+contrastive pairs for each split, writing `trainingData/trainPreferences.pkl` and
+`testingData/testPreferences.pkl`, which `train.py` consumes.
 
 ## Development Plan
 
 ### Step 1 — Understand the environment and demo format
 
-Read the existing `.pkl` demo files to verify their structure (`Good_states`,
-`Good_actions`, `Good_feature`) and inspect the MODE=7 obstacle layout. Confirm that
-the demos exhibit genuine multi-strategy structure by checking that trajectories follow
-visually distinct paths through the obstacle maze.
+Read the existing `.pkl` demo files to verify their structure (Optimal demos use plain
+`states` / `actions` / `feature` keys; Good/Bad pairs use `Good_*` and `Bad_*` keys) and
+inspect the MODE=7 obstacle layout. Confirm that the demos exhibit genuine multi-strategy
+structure by checking that trajectories follow visually distinct paths through the obstacle
+maze.
 
 **Deliverable:** notes on demo schema, obstacle geometry, and confirmation of multi-strategy
 structure.
