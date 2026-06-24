@@ -89,13 +89,13 @@ def main():
 
 
 	# read in training set of preference pairs
-	prefPathTrain = os.path.join(scriptDir, 'data', 'trainPreferences.pkl')
+	prefPathTrain = os.path.join(scriptDir, 'data', 'trainingData', 'trainPreferences.pkl')
 	with open(prefPathTrain, 'rb') as f:
 		prefDataTrain = pickle.load(f)
 	print(f'loaded {len(prefDataTrain)} preference pairs')
 
 	# read in testing set of preference pairs
-	prefPathTest = os.path.join(scriptDir, 'data', 'testPreferences.pkl')
+	prefPathTest = os.path.join(scriptDir, 'data', 'testingData', 'testPreferences.pkl')
 	with open(prefPathTest, 'rb') as f:
 		prefDataTest = pickle.load(f)
 	print(f'loaded {len(prefDataTest)} preference pairs')

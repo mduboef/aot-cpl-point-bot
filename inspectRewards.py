@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import pickle
 import numpy as np
 import matplotlib
@@ -16,16 +17,35 @@ GREY_WEIGHT = 160.0
 DIST_WEIGHT = 1.0
 DEMO_TYPES  = range(1, 6)
 
+# maps the command-line split argument to the directory holding that split's demos
+SPLIT_DIRS = {
+	'training': 'trainingData',
+	'testing':  'testingData',
+	'all':      'allData',
+}
+
 
 def reward(feature):
 	greySteps, whiteSteps, cumDist = feature
 	return -(GREY_WEIGHT * greySteps + DIST_WEIGHT * cumDist)
 
 
-def loadDemos(dataDir, split):
+# returns the label and key prefix to keep for one pkl; Bad demos are dropped
+# Optimal demos are single-trajectory (plain keys); Good demos use the Good_ prefix
+def pickTrajectory(data):
+	if 'feature' in data:
+		return 'Optimal', ''
+	if 'Good_feature' in data:
+		return 'Good', 'Good_'
+	return None, None
+
+
+# loads every Good and Optimal demo across all corridor folders for one split
+# splitDir is 'trainingData', 'testingData' or 'allData'; Bad demos are ignored
+def loadDemos(dataDir, splitDir):
 	items = []
 	for typeIdx in DEMO_TYPES:
-		typeDir = os.path.join(dataDir, f'{typeIdx}_{split}')
+		typeDir = os.path.join(dataDir, splitDir, str(typeIdx))
 		if not os.path.isdir(typeDir):
 			continue
 		for fname in sorted(os.listdir(typeDir)):
@@ -33,12 +53,16 @@ def loadDemos(dataDir, split):
 				continue
 			with open(os.path.join(typeDir, fname), 'rb') as f:
 				data = pickle.load(f)
-			actions = data['Good_actions']
-			states  = np.array(data['Good_states'])[:len(actions) + 1]
-			feature = data['Good_feature']
+			label, prefix = pickTrajectory(data)
+			if label is None:
+				continue
+			actions = data[f'{prefix}actions']
+			states  = np.array(data[f'{prefix}states'])[:len(actions) + 1]
+			feature = data[f'{prefix}feature']
 			items.append({
 				'fname':   fname,
 				'type':    typeIdx,
+				'label':   label,
 				'states':  states,
 				'feature': feature,
 				'reward':  reward(feature),
@@ -134,7 +158,7 @@ def plotRankedRollouts(items, split, savePath):
 
 	ax.set_xlabel('x position')
 	ax.set_ylabel('y position')
-	ax.set_title(f'{split}ing Demos Colored by Reward Rank ({n} demos)')
+	ax.set_title(f'{split.capitalize()} Demos Colored by Reward Rank ({n} demos)')
 	ax.legend(fontsize=8, loc='upper right')
 	ax.set_aspect('equal')
 	ax.grid(True, alpha=0.25)
@@ -146,11 +170,16 @@ def plotRankedRollouts(items, split, savePath):
 
 
 def main():
-	for split in ['train', 'test']:
-		items = loadDemos(DATA_DIR, split)
-		printRanking(items, split)
-		savePath = os.path.join(os.path.dirname(DATA_DIR), 'demoPlots', f'rankedRollouts_{split}.png')
-		plotRankedRollouts(items, split, savePath)
+	parser = argparse.ArgumentParser()
+	parser.add_argument('split', nargs='?', default='all', choices=['training', 'testing', 'all'],
+		help='which demos to inspect: training, testing or all (default: all)')
+	args = parser.parse_args()
+
+	splitDir = SPLIT_DIRS[args.split]
+	items = loadDemos(DATA_DIR, splitDir)
+	printRanking(items, args.split)
+	savePath = os.path.join(os.path.dirname(DATA_DIR), 'demoPlots', f'rankedRollouts_{args.split}.png')
+	plotRankedRollouts(items, args.split, savePath)
 
 
 if __name__ == '__main__':

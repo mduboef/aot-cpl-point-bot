@@ -25,23 +25,34 @@ def reward(feature):
 	return -(GREY_WEIGHT * greySteps + DIST_WEIGHT * cumDist)
 
 
-# trims a demo's Good trajectory so actions has length T and states has length T+1
-def extractTrajectory(data):
-	states  = data['Good_states']
-	actions = data['Good_actions']
-	feature = data['Good_feature']
+# trims a labeled trajectory so actions has length T and states has length T+1
+def extractTrajectory(data, prefix):
+	states  = data[f'{prefix}states']
+	actions = data[f'{prefix}actions']
+	feature = data[f'{prefix}feature']
 	T = len(actions)
 	trimmedStates  = np.array(states[:T + 1])  # (T+1, 4)
 	trimmedActions = np.array(actions)          # (T, 2)
 	return trimmedStates, trimmedActions, feature
 
 
-# loads every Good demo across all corridor folders for one split ('train' or 'test')
-# returns one flat pool of items, each tagged with its source corridor type and reward
-def loadDemos(dataDir, split):
+# returns the label and key prefix to keep for one pkl; Bad demos are dropped
+# Optimal demos are single-trajectory (plain keys); Good demos are the Good half of a Good/Bad pair
+def pickTrajectory(data):
+	if 'feature' in data:
+		return 'Optimal', ''
+	if 'Good_feature' in data:
+		return 'Good', 'Good_'
+	return None, None
+
+
+# loads every Good and Optimal demo across all corridor folders for one split
+# split dir is 'trainingData' or 'testingData'; Bad demos are ignored
+# returns one flat pool of items, each tagged with its source corridor type, label and reward
+def loadDemos(dataDir, splitDir):
 	items = []
 	for typeIdx in DEMO_TYPES:
-		typeDir = os.path.join(dataDir, f'{typeIdx}_{split}')
+		typeDir = os.path.join(dataDir, splitDir, str(typeIdx))
 		if not os.path.isdir(typeDir):
 			continue
 		for fname in sorted(os.listdir(typeDir)):
@@ -49,10 +60,14 @@ def loadDemos(dataDir, split):
 				continue
 			with open(os.path.join(typeDir, fname), 'rb') as f:
 				data = pickle.load(f)
-			states, actions, feature = extractTrajectory(data)
+			label, prefix = pickTrajectory(data)
+			if label is None:
+				continue
+			states, actions, feature = extractTrajectory(data, prefix)
 			items.append({
 				'fname':   fname,
 				'type':    typeIdx,
+				'label':   label,
 				'states':  states,
 				'actions': actions,
 				'feature': feature,
@@ -107,14 +122,20 @@ def reportCorridors(items, split):
 def main():
 	dataDir = os.path.dirname(os.path.abspath(__file__))
 
-	for split in ['train', 'test']:
-		items = loadDemos(dataDir, split)
+	# (split label, source dir under dataDir, output preference filename)
+	splits = [
+		('train', 'trainingData', 'trainPreferences.pkl'),
+		('test',  'testingData',  'testPreferences.pkl'),
+	]
+
+	for split, splitDir, outName in splits:
+		items = loadDemos(dataDir, splitDir)
 		pairs = generatePairs(items)
 
 		reportCorridors(items, split)
 		print(f'{split}: {len(items)} demos -> {len(pairs)} pairs')
 
-		savePath = os.path.join(dataDir, f'{split}Preferences.pkl')
+		savePath = os.path.join(dataDir, splitDir, outName)
 		with open(savePath, 'wb') as f:
 			pickle.dump(pairs, f)
 		print(f'saved -> {savePath}')

@@ -8,14 +8,33 @@ import matplotlib.patches as patches
 from env.pointbot_const import OBSTACLE, MODE, GOAL_STATE, START_POS, END_POS, COLLISION_COST
 
 
+# returns the key prefix to keep for one pkl; Bad demos are dropped
+# Optimal demos are single-trajectory (plain keys); Good demos use the Good_ prefix
+def pickPrefix(data):
+	if 'feature' in data:
+		return ''
+	if 'Good_feature' in data:
+		return 'Good_'
+	return None
+
+
 def loadDemos(directory):
-	# return sorted list of (filename, data_dict) tuples
+	# return sorted list of (filename, data_dict) tuples; each kept demo is
+	# normalized to Good_states/Good_actions keys (Optimal or Good; Bad ignored)
 	demos = []
+	if not os.path.isdir(directory):
+		return demos
 	for fname in sorted(os.listdir(directory)):
 		if fname.endswith('.pkl'):
 			with open(os.path.join(directory, fname), 'rb') as f:
 				data = pickle.load(f)
-			demos.append((fname, data))
+			prefix = pickPrefix(data)
+			if prefix is None:
+				continue
+			demos.append((fname, {
+				'Good_states':  data[f'{prefix}states'],
+				'Good_actions': data[f'{prefix}actions'],
+			}))
 	return demos
 
 
@@ -125,17 +144,17 @@ def main(savePathArg=None):
 
 	scriptDir = os.path.dirname(os.path.abspath(__file__))
 
-	dir1Train = os.path.join(scriptDir, 'data', '1_train')
-	dir2Train = os.path.join(scriptDir, 'data', '2_train')
-	dir3Train = os.path.join(scriptDir, 'data', '3_train')
-	dir4Train = os.path.join(scriptDir, 'data', '4_train')
-	dir5Train = os.path.join(scriptDir, 'data', '5_train')
+	dir1Train = os.path.join(scriptDir, 'data', 'trainingData', '1')
+	dir2Train = os.path.join(scriptDir, 'data', 'trainingData', '2')
+	dir3Train = os.path.join(scriptDir, 'data', 'trainingData', '3')
+	dir4Train = os.path.join(scriptDir, 'data', 'trainingData', '4')
+	dir5Train = os.path.join(scriptDir, 'data', 'trainingData', '5')
 
-	dir1Test = os.path.join(scriptDir, 'data', '1_test')
-	dir2Test = os.path.join(scriptDir, 'data', '2_test')
-	dir3Test = os.path.join(scriptDir, 'data', '3_test')
-	dir4Test = os.path.join(scriptDir, 'data', '4_test')
-	dir5Test = os.path.join(scriptDir, 'data', '5_test')
+	dir1Test = os.path.join(scriptDir, 'data', 'testingData', '1')
+	dir2Test = os.path.join(scriptDir, 'data', 'testingData', '2')
+	dir3Test = os.path.join(scriptDir, 'data', 'testingData', '3')
+	dir4Test = os.path.join(scriptDir, 'data', 'testingData', '4')
+	dir5Test = os.path.join(scriptDir, 'data', 'testingData', '5')
 
 	allDemos = [
 		(loadDemos(dir1Train), 'Training Demos Type 1', 'train_demos_1.png'),
