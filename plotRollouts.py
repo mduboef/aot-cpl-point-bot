@@ -79,9 +79,12 @@ def plotDemos(ax, demos, title):
 	drawObstacles(ax)
 	colors = plt.cm.tab10(np.linspace(0, 1, max(len(demos), 1)))
 
+	# name column is only as wide as the longest demo / rollout name
+	nameWidth = max([len('name')] + [len(fname) for fname, _ in demos])
+
 	print(f"\n=== {title} ===")
-	print(f"  {'file':<42} {'type':<5} {'steps':>6}  {'obs_steps':>9}  {'reward':>10}")
-	print(f"  {'-'*42} {'-'*5} {'-'*6}  {'-'*9}  {'-'*10}")
+	print(f"  {'name':<{nameWidth}}  {'steps':>6}  {'obs_steps':>9}  {'reward':>10}")
+	print(f"  {'-'*nameWidth}  {'-'*6}  {'-'*9}  {'-'*10}")
 
 	rewardSum = 0
 
@@ -92,7 +95,7 @@ def plotDemos(ax, demos, title):
 		tg, obsG, rewG = computeStats(data['Good_states'], data['Good_actions'])
 		ax.plot(goodStates[:, 0], goodStates[:, 2],
 				color=color, linewidth=1.8, label=fname.removesuffix('.pkl'))
-		print(f"  {fname:<42} {'Good':<5} {tg:>6}  {obsG:>9}  {rewG:>10.1f}")
+		print(f"  {fname:<{nameWidth}}  {tg:>6}  {obsG:>9}  {rewG:>10.1f}")
 		rewardSum += rewG
 
 	# print avg reward

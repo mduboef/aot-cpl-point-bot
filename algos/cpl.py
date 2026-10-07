@@ -27,8 +27,6 @@
 import numpy as np
 import torch
 
-from evaluate import preferenceAccuracy
-
 
 # cpl_loss
 # Standard CPL cross-entropy loss on a batch of preference pairs. Because every
@@ -114,19 +112,6 @@ def _batchPosNegScores(policy, cache, indices, alpha, gamma):
 	return posScores, negScores
 
 
-# _logRawAccuracy
-# Evaluate and log overall + per-type preference accuracy on a raw preference set.
-# Leaves the policy back in train mode (preferenceAccuracy flips it to eval) so the
-# training loop can continue uninterrupted.
-def _logRawAccuracy(writer, tag, policy, prefData, alpha, gamma, device, step):
-	acc = preferenceAccuracy(policy, prefData, alpha, gamma, device)
-	policy.train()
-	writer.add_scalar(f'accuracy/{tag}', acc['overall'], step)
-	for st, d in acc['perType'].items():
-		writer.add_scalar(f'{tag}PerType/type_{st}', d['accuracy'], step)
-	return acc['overall']
-
-
 # trainCPL
 # Phase 3: CPL contrastive training of π_θ (no reference policy).
 #
@@ -148,9 +133,7 @@ def trainCPL(
 	bias=1.0,
 	device='cpu',
 	logInterval=1000,
-	writer=None,
-	prefDataTest=None,
-	evalInterval=1000,
+	evaluator=None,
 	stepOffset=0,
 ):
 	n = len(prefData)
@@ -174,16 +157,10 @@ def trainCPL(
 		loss.backward()
 		optimizer.step()
 
-		# per-step curves: CPL loss and preference accuracy on the sampled batch
-		if writer is not None:
-			writer.add_scalar('loss/cpl', loss.item(), gStep)
-			writer.add_scalar('accuracy/batch', accuracy.item(), gStep)
-
-		# periodic curves: raw preference accuracy on the full train and test sets
-		if writer is not None and step % evalInterval == 0:
-			_logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, gStep)
-			if prefDataTest is not None:
-				_logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, gStep)
+		# TensorBoard: per-step contrastive loss, plus periodic evals on their intervals (tbLogging.py)
+		if evaluator is not None:
+			evaluator.logLoss('contrastiveLoss', loss.item(), gStep)
+			evaluator.maybeLog(policy, gStep)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{cplSteps}  cpl_loss: {loss.item():.4f}  accuracy: {accuracy.item():.3f}')

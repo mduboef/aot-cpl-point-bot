@@ -12,29 +12,15 @@ from algos.bc import trainBC
 from algos.cpl import trainCPL
 from algos.cpl_paot import trainCPLpAOT
 from algos.cpl_uaot import trainCPLuAOT
+from algos.ref import prepareRefDir, loadRefPolicy
 from plotRollouts import computeStats, plotDemos
 from evaluate import preferenceAccuracy, paotLoss, uaotLoss
+from tbLogging import PeriodicEvaluator, rollout
 
 
 # pretty-prints overall and per-strategy-type preference accuracy
 def printAccuracy(label, acc):
 	print(f'  {label}: {acc["overall"]:.3f} overall  ({acc["nPairs"]} pairs)')
-
-
-def rollout(env, policy):
-	# runs one episode under the given policy; returns trajectory dict
-	obs = env.reset()
-	states, actions = [obs.copy()], []
-	done = False
-	while not done:
-		action, _ = policy.step(obs)
-		obs, _, done, _ = env.step(action)
-		actions.append(action)
-		states.append(obs.copy())
-	return {
-		'states':  np.array(states),
-		'actions': np.array(actions),
-	}
 
 
 def getRunDir(modelsDir, methodName):
@@ -76,7 +62,7 @@ def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, conf
 def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--method', type=str, default='bc',
-		choices=['bc', 'cpl', 'cpl_biased', 'cpl_paot', 'cpl_uaot', 'cpl_uaot_ref'])
+		choices=['ref', 'bc', 'cpl', 'cpl_biased', 'cpl_paot', 'cpl_uaot', 'cpl_uaot_ref'])
 	args = parser.parse_args()
 
 	scriptDir  = os.path.dirname(os.path.abspath(__file__))
@@ -108,13 +94,6 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
-	# set up the run directory and tensorboard writer up front so training curves are written live
-	# the policy, plots, and eval json are saved into the same dir at the end
-	modelsDir = os.path.join(scriptDir, 'models')
-	runDir    = getRunDir(modelsDir, args.method)
-	writer    = SummaryWriter(os.path.join(runDir, 'tb'))
-	print(f'tensorboard logdir → {os.path.join(runDir, "tb")}')
-
 	# number of rollouts generated after training
 	nRollouts = 50
 	# ? what do these params control
@@ -123,60 +102,46 @@ def main():
 	gammaEval = cfg.get('gamma', 1.0)
 
 
-
-	# establish reference policy, trained once and cached in models/REF_POLICY/
-	refPolicyDir  = os.path.join(modelsDir, 'REF_POLICY')
-	refPolicyPath = os.path.join(refPolicyDir, 'policy.pt')
-
-	# load existing ref policy is one exists
-	if os.path.isfile(refPolicyPath):
-		with open(os.path.join(refPolicyDir, 'config.yaml')) as f:
-			refConfig = yaml.safe_load(f)
-		if refConfig.get('ref_bc_steps', 0) != cfg.get('ref_bc_steps', 0):
-			print(f'WARNING: saved reference policy was trained with ref_bc_steps = {refConfig.get("ref_bc_steps", 0)}, but current config has ref_bc_steps = {cfg.get("ref_bc_steps", 0)}; loading saved ref policy anyway')
-		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
-		refPolicy.load_state_dict(torch.load(refPolicyPath, map_location=device))
-		refPolicy.to(device)
-		refPolicy.eval()
-		print(f'reference policy loaded from {refPolicyPath}')
-
-	# train and save new ref policy is one doesn't exist
+	# reference policy lives in models/REF_POLICY/ and is only (re)trained by --method ref
+	# every other method loads it, erroring out before a run dir is created if it's missing
+	modelsDir    = os.path.join(scriptDir, 'models')
+	refPolicyDir = os.path.join(modelsDir, 'REF_POLICY')
+	if args.method == 'ref':
+		refPolicy = None
+		runDir    = prepareRefDir(refPolicyDir)
 	else:
-		refPolicy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
-		print('\n--- phase 1: BC training of π_ref ---')
-		refPolicy = trainBC(
-			refPolicy, prefDataTrain,
-			bcSteps     = cfg['ref_bc_steps'],
-			batchSize   = cfg['batch_size'],
-			lr          = cfg['lr'],
-			device      = device,
-			logInterval = cfg['log_interval'],
+		refPolicy = loadRefPolicy(refPolicyDir, obsDim, actDim, device)
+		runDir    = getRunDir(modelsDir, args.method)
+
+
+	# TensorBoard evaluator: logs the eval-table metrics every eval_interval steps and the
+	# average reward of n_eval_rollouts rollouts every rollout_interval steps (see tbLogging.py)
+	# its metrics are measured against π_ref, so the ref run itself trains without one
+	writer    = None
+	evaluator = None
+	if refPolicy is not None:
+		writer = SummaryWriter(os.path.join(runDir, 'tb'))
+		print(f'tensorboard logdir → {os.path.join(runDir, "tb")}')
+		evaluator = PeriodicEvaluator(
+			writer, refPolicy, prefDataTrain, prefDataTest,
+			env             = PointBot(),
+			runDir          = runDir,
+			evalInterval    = cfg['eval_interval'],
+			rolloutInterval = cfg['rollout_interval'],
+			nRollouts       = cfg['n_eval_rollouts'],
+			alpha           = alphaEval,
+			gamma           = gammaEval,
+			device          = device,
 		)
-		for param in refPolicy.parameters():
-			param.requires_grad = False
-		refPolicy.eval()
-		os.makedirs(refPolicyDir)
-		refRollouts, refEvalStats = [], []
-		for i in range(nRollouts):
-			traj = rollout(env, refPolicy)
-			numSteps, obsSteps, cumReward = computeStats(traj['states'], traj['actions'])
-			refRollouts.append((f'ref_{i}', {'Good_states': traj['states'], 'Good_actions': traj['actions']}))
-			refEvalStats.append({'rollout': i, 'steps': numSteps, 'obs_steps': obsSteps, 'reward': cumReward})
-		refTrainAcc  = preferenceAccuracy(refPolicy, prefDataTrain, alphaEval, gammaEval, device)
-		refTestAcc   = preferenceAccuracy(refPolicy, prefDataTest,  alphaEval, gammaEval, device)
-		refPrefStats = {'train': refTrainAcc, 'test': refTestAcc}
-		saveResults(refPolicyDir, refPolicy, refEvalStats, refPrefStats, refRollouts, 'ref', configPath)
-		shutil.copy(configPath, os.path.join(refPolicyDir, 'config.yaml'))
-		print(f'Reference policy saved → {refPolicyDir}')
-
-
+		# step 0: log the untrained policy so every curve starts from initialization
+		evaluator.maybeLog(policy.to(device), 0)
 
 	# step offset so a BC warmup phase is plotted before the preference-learning phase
 	warmupSteps = cfg.get('bc_warmup_steps', 0)
 
-	# train using pure BC
-	if  args.method == 'bc':
-		print('\n--- Pure BC training of π_θ ---')
+	# train using pure BC (π_ref is always pure BC)
+	if args.method in ('bc', 'ref'):
+		print(f'\n--- Pure BC training of {"π_ref" if args.method == "ref" else "π_θ"} ---')
 		policy = trainBC(
 			policy, prefDataTrain,
 			bcSteps      = cfg['bc_steps'],
@@ -184,11 +149,7 @@ def main():
 			lr           = cfg['lr'],
 			device       = device,
 			logInterval  = cfg['log_interval'],
-			alpha        = alphaEval,
-			gamma        = gammaEval,
-			writer       = writer,
-			prefDataTest = prefDataTest,
-			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+			evaluator    = evaluator,
 		)
 
 
@@ -203,11 +164,7 @@ def main():
 				lr           = cfg['lr'],
 				device       = device,
 				logInterval  = cfg['log_interval'],
-				alpha        = alphaEval,
-				gamma        = gammaEval,
-				writer       = writer,
-				prefDataTest = prefDataTest,
-				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+				evaluator    = evaluator,
 			)
 		
 
@@ -226,10 +183,8 @@ def main():
 				bias        = cfg['contrastive_bias'],
 				device      = device,
 				logInterval = cfg['log_interval'],
-				writer       = writer,
-				prefDataTest = prefDataTest,
-				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-				stepOffset   = warmupSteps,
+				evaluator   = evaluator,
+				stepOffset  = warmupSteps,
 			)
 
 
@@ -246,10 +201,8 @@ def main():
 				bias        = cfg['contrastive_bias'],
 				device      = device,
 				logInterval = cfg['log_interval'],
-				writer       = writer,
-				prefDataTest = prefDataTest,
-				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-				stepOffset   = warmupSteps,
+				evaluator   = evaluator,
+				stepOffset  = warmupSteps,
 			)
 
 		# CPL pAOT
@@ -264,10 +217,8 @@ def main():
 				gamma       = cfg['gamma'],
 				device      = device,
 				logInterval = cfg['log_interval'],
-				writer       = writer,
-				prefDataTest = prefDataTest,
-				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-				stepOffset   = warmupSteps,
+				evaluator   = evaluator,
+				stepOffset  = warmupSteps,
 			)
 
 
@@ -285,10 +236,8 @@ def main():
 				gamma       = cfg['gamma'],
 				device      = device,
 				logInterval = cfg['log_interval'],
-				writer       = writer,
-				prefDataTest = prefDataTest,
-				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
-				stepOffset   = warmupSteps,
+				evaluator   = evaluator,
+				stepOffset  = warmupSteps,
 			)
 
 
@@ -319,36 +268,41 @@ def main():
 	prefStats = {'train': trainAcc, 'test': testAcc}
 
 
-	# primary metric 1: pAOT loss of the trained policy (any method) against π_ref
-	# measures first-order stochastic dominance violations
-	print('\n--- pAOT loss vs π_ref (FSD violations) ---')
-	paotTrain = paotLoss(policy, refPolicy, prefDataTrain, alphaEval, gammaEval, device)
-	paotTest  = paotLoss(policy, refPolicy, prefDataTest,  alphaEval, gammaEval, device)
-	for label, p in [('train', paotTrain), ('test', paotTest)]:
-		print(f'  {label}: paot_loss {p["paotLoss"]:.4f}  '
-			f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
-			f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
-	paotStats = {'train': paotTrain, 'test': paotTest}
+	# the AOT metrics below are measured against π_ref, so they're skipped for the ref run itself
+	paotStats, uaotStats = None, None
+	if refPolicy is not None:
+
+		# primary metric 1: pAOT loss of the trained policy (any method) against π_ref
+		# measures first-order stochastic dominance violations
+		print('\n--- pAOT loss vs π_ref (FSD violations) ---')
+		paotTrain = paotLoss(policy, refPolicy, prefDataTrain, alphaEval, gammaEval, device)
+		paotTest  = paotLoss(policy, refPolicy, prefDataTest,  alphaEval, gammaEval, device)
+		for label, p in [('train', paotTrain), ('test', paotTest)]:
+			print(f'  {label}: paot_loss {p["paotLoss"]:.4f}  '
+				f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
+				f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
+		paotStats = {'train': paotTrain, 'test': paotTest}
 
 
-	# primary metric 2: uAOT loss of the trained policy (any method), measuring first-order
-	# stochastic dominance violations between the pooled preferred- and rejected-score
-	# distributions. computed with π_ref (log-ratio scores) so the metric is a common,
-	# ease-of-imitation-normalized yardstick across every method, regardless of how it trained.
-	print('\n--- uAOT loss vs π_ref (FSD violations) ---')
-	uaotTrain = uaotLoss(policy, prefDataTrain, refPolicy, alphaEval, gammaEval, device)
-	uaotTest  = uaotLoss(policy, prefDataTest,  refPolicy, alphaEval, gammaEval, device)
-	for label, p in [('train', uaotTrain), ('test', uaotTest)]:
-		print(f'  {label}: uaot_loss {p["uaotLoss"]:.4f}  '
-			f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
-			f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
-	uaotStats = {'train': uaotTrain, 'test': uaotTest}
+		# primary metric 2: uAOT loss of the trained policy (any method), measuring first-order
+		# stochastic dominance violations between the pooled preferred- and rejected-score
+		# distributions. computed with π_ref (log-ratio scores) so the metric is a common,
+		# ease-of-imitation-normalized yardstick across every method, regardless of how it trained.
+		print('\n--- uAOT loss vs π_ref (FSD violations) ---')
+		uaotTrain = uaotLoss(policy, prefDataTrain, refPolicy, alphaEval, gammaEval, device)
+		uaotTest  = uaotLoss(policy, prefDataTest,  refPolicy, alphaEval, gammaEval, device)
+		for label, p in [('train', uaotTrain), ('test', uaotTest)]:
+			print(f'  {label}: uaot_loss {p["uaotLoss"]:.4f}  '
+				f'violations {p["nViolations"]}/{p["nPairs"]} ({p["violationFreq"]:.1%})  '
+				f'shortfall mean {p["meanShortfall"]:.3f} max {p["maxShortfall"]:.3f}')
+		uaotStats = {'train': uaotTrain, 'test': uaotTest}
 
 	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
 	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, paotStats, uaotStats)
-	writer.close()
+	if writer is not None:
+		writer.close()
 	print(f'\nresults saved → {runDir}')
 
 

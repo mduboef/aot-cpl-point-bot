@@ -2,172 +2,322 @@
   "rollouts": [
     {
       "rollout": 0,
-      "steps": 71,
-      "obs_steps": 1,
-      "reward": -8113.757520991547
+      "steps": 82,
+      "obs_steps": 0,
+      "reward": -9264.688000092317
     },
     {
       "rollout": 1,
-      "steps": 71,
-      "obs_steps": 3,
-      "reward": -8158.127298675175
+      "steps": 89,
+      "obs_steps": 18,
+      "reward": -10760.228754213145
     },
     {
       "rollout": 2,
-      "steps": 70,
-      "obs_steps": 3,
-      "reward": -7710.931558197183
+      "steps": 86,
+      "obs_steps": 2,
+      "reward": -9781.36014669108
     },
     {
       "rollout": 3,
-      "steps": 75,
-      "obs_steps": 11,
-      "reward": -8321.885815058966
+      "steps": 88,
+      "obs_steps": 2,
+      "reward": -10205.43874866779
     },
     {
       "rollout": 4,
-      "steps": 74,
-      "obs_steps": 0,
-      "reward": -8570.583892936666
+      "steps": 101,
+      "obs_steps": 13,
+      "reward": -10406.54223281821
     },
     {
       "rollout": 5,
-      "steps": 71,
-      "obs_steps": 2,
-      "reward": -8291.07414683707
+      "steps": 78,
+      "obs_steps": 0,
+      "reward": -8882.304814595607
     },
     {
       "rollout": 6,
-      "steps": 77,
-      "obs_steps": 0,
-      "reward": -8624.219139519504
+      "steps": 100,
+      "obs_steps": 11,
+      "reward": -11874.281105008331
     },
     {
       "rollout": 7,
-      "steps": 75,
-      "obs_steps": 4,
-      "reward": -8382.763828467216
+      "steps": 73,
+      "obs_steps": 11,
+      "reward": -8213.985635042533
     },
     {
       "rollout": 8,
       "steps": 73,
-      "obs_steps": 1,
-      "reward": -8227.158660122392
+      "obs_steps": 0,
+      "reward": -8454.733323947134
     },
     {
       "rollout": 9,
-      "steps": 101,
-      "obs_steps": 19,
-      "reward": -9593.551376521953
+      "steps": 79,
+      "obs_steps": 10,
+      "reward": -8783.188358563037
     },
     {
       "rollout": 10,
-      "steps": 70,
-      "obs_steps": 2,
-      "reward": -7770.182068317751
+      "steps": 79,
+      "obs_steps": 0,
+      "reward": -8997.38522611052
     },
     {
       "rollout": 11,
-      "steps": 80,
-      "obs_steps": 29,
-      "reward": -7601.605112572512
+      "steps": 76,
+      "obs_steps": 9,
+      "reward": -8426.269543969827
     },
     {
       "rollout": 12,
       "steps": 73,
-      "obs_steps": 4,
-      "reward": -8236.795702712303
+      "obs_steps": 0,
+      "reward": -8405.543632794126
     },
     {
       "rollout": 13,
-      "steps": 75,
+      "steps": 77,
       "obs_steps": 0,
-      "reward": -8659.010518482253
+      "reward": -8928.08001239798
     },
     {
       "rollout": 14,
-      "steps": 71,
+      "steps": 85,
       "obs_steps": 0,
-      "reward": -8126.311880029616
+      "reward": -9665.408046266253
     },
     {
       "rollout": 15,
-      "steps": 68,
-      "obs_steps": 3,
-      "reward": -7765.677438940993
+      "steps": 74,
+      "obs_steps": 1,
+      "reward": -8497.230903229063
     },
     {
       "rollout": 16,
-      "steps": 73,
-      "obs_steps": 0,
-      "reward": -8217.7636308139
+      "steps": 77,
+      "obs_steps": 1,
+      "reward": -8694.737508182177
     },
     {
       "rollout": 17,
-      "steps": 71,
+      "steps": 72,
       "obs_steps": 4,
-      "reward": -7957.445848409921
+      "reward": -8266.423981722255
     },
     {
       "rollout": 18,
-      "steps": 71,
-      "obs_steps": 2,
-      "reward": -8174.983628038405
+      "steps": 77,
+      "obs_steps": 0,
+      "reward": -8825.929627929916
     },
     {
       "rollout": 19,
-      "steps": 70,
-      "obs_steps": 4,
-      "reward": -7670.646194273344
+      "steps": 78,
+      "obs_steps": 8,
+      "reward": -8901.924292473286
     },
     {
       "rollout": 20,
-      "steps": 72,
-      "obs_steps": 10,
-      "reward": -8112.20031860218
+      "steps": 71,
+      "obs_steps": 0,
+      "reward": -8201.51849051838
     },
     {
       "rollout": 21,
-      "steps": 71,
-      "obs_steps": 0,
-      "reward": -8028.223821989844
+      "steps": 98,
+      "obs_steps": 11,
+      "reward": -11254.02136317578
     },
     {
       "rollout": 22,
-      "steps": 73,
-      "obs_steps": 3,
-      "reward": -8430.805520079652
+      "steps": 90,
+      "obs_steps": 4,
+      "reward": -10436.695650645484
     },
     {
       "rollout": 23,
-      "steps": 73,
-      "obs_steps": 7,
-      "reward": -8059.099460367748
+      "steps": 76,
+      "obs_steps": 0,
+      "reward": -8823.961160984272
     },
     {
       "rollout": 24,
+      "steps": 74,
+      "obs_steps": 3,
+      "reward": -8605.313719149877
+    },
+    {
+      "rollout": 25,
+      "steps": 78,
+      "obs_steps": 0,
+      "reward": -8806.169995650207
+    },
+    {
+      "rollout": 26,
+      "steps": 74,
+      "obs_steps": 1,
+      "reward": -8661.108204073918
+    },
+    {
+      "rollout": 27,
+      "steps": 74,
+      "obs_steps": 1,
+      "reward": -8600.002348293108
+    },
+    {
+      "rollout": 28,
+      "steps": 94,
+      "obs_steps": 11,
+      "reward": -10874.120996656073
+    },
+    {
+      "rollout": 29,
+      "steps": 91,
+      "obs_steps": 0,
+      "reward": -10161.600545629697
+    },
+    {
+      "rollout": 30,
+      "steps": 88,
+      "obs_steps": 3,
+      "reward": -10048.942700166253
+    },
+    {
+      "rollout": 31,
+      "steps": 101,
+      "obs_steps": 1,
+      "reward": -12089.229636888233
+    },
+    {
+      "rollout": 32,
+      "steps": 71,
+      "obs_steps": 0,
+      "reward": -8368.994919334044
+    },
+    {
+      "rollout": 33,
+      "steps": 85,
+      "obs_steps": 4,
+      "reward": -9698.78161856815
+    },
+    {
+      "rollout": 34,
+      "steps": 97,
+      "obs_steps": 14,
+      "reward": -10907.667520984378
+    },
+    {
+      "rollout": 35,
+      "steps": 93,
+      "obs_steps": 16,
+      "reward": -10766.671922394306
+    },
+    {
+      "rollout": 36,
+      "steps": 80,
+      "obs_steps": 9,
+      "reward": -8791.413588422169
+    },
+    {
+      "rollout": 37,
+      "steps": 78,
+      "obs_steps": 0,
+      "reward": -9159.259533698372
+    },
+    {
+      "rollout": 38,
+      "steps": 90,
+      "obs_steps": 1,
+      "reward": -10518.413971223428
+    },
+    {
+      "rollout": 39,
+      "steps": 81,
+      "obs_steps": 0,
+      "reward": -9351.51865279118
+    },
+    {
+      "rollout": 40,
+      "steps": 97,
+      "obs_steps": 16,
+      "reward": -11428.726132290516
+    },
+    {
+      "rollout": 41,
+      "steps": 75,
+      "obs_steps": 0,
+      "reward": -8536.307709837005
+    },
+    {
+      "rollout": 42,
+      "steps": 84,
+      "obs_steps": 1,
+      "reward": -9527.447090301866
+    },
+    {
+      "rollout": 43,
+      "steps": 74,
+      "obs_steps": 2,
+      "reward": -8611.052634383681
+    },
+    {
+      "rollout": 44,
+      "steps": 74,
+      "obs_steps": 2,
+      "reward": -8521.830818963468
+    },
+    {
+      "rollout": 45,
+      "steps": 78,
+      "obs_steps": 1,
+      "reward": -9035.62205368646
+    },
+    {
+      "rollout": 46,
+      "steps": 74,
+      "obs_steps": 6,
+      "reward": -8412.237776057658
+    },
+    {
+      "rollout": 47,
+      "steps": 90,
+      "obs_steps": 4,
+      "reward": -10168.420329301172
+    },
+    {
+      "rollout": 48,
       "steps": 72,
-      "obs_steps": 5,
-      "reward": -8127.014304743596
+      "obs_steps": 0,
+      "reward": -8213.16183504843
+    },
+    {
+      "rollout": 49,
+      "steps": 69,
+      "obs_steps": 0,
+      "reward": -8096.455220091428
     }
   ],
   "preferenceAccuracy": {
     "train": {
-      "overall": 0.6425887585307876,
+      "overall": 0.6446591519055287,
       "nPairs": 13041,
       "perType": {
         "-1": {
-          "accuracy": 0.6425887585307876,
+          "accuracy": 0.6446591519055287,
           "nPairs": 13041
         }
       }
     },
     "test": {
-      "overall": 0.723870868798405,
+      "overall": 0.7133655394524959,
       "nPairs": 13041,
       "perType": {
         "-1": {
-          "accuracy": 0.723870868798405,
+          "accuracy": 0.7133655394524959,
           "nPairs": 13041
         }
       }

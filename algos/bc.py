@@ -1,19 +1,6 @@
 import numpy as np
 import torch
 
-from evaluate import preferenceAccuracy
-
-
-# evaluate and log overall + per-type raw preference accuracy; mirrors the helper in cpl.py
-# so BC curves land on the same accuracy/rawTrain and accuracy/rawTest tags as the CPL phases
-def _logRawAccuracy(writer, tag, policy, prefData, alpha, gamma, device, step):
-	acc = preferenceAccuracy(policy, prefData, alpha, gamma, device)
-	policy.train()
-	writer.add_scalar(f'accuracy/{tag}', acc['overall'], step)
-	for st, d in acc['perType'].items():
-		writer.add_scalar(f'{tag}PerType/type_{st}', d['accuracy'], step)
-	return acc['overall']
-
 
 def buildBCDataset(prefData):
 	# pool (obs, action) pairs from every pos and neg segment in the preference dataset
@@ -38,11 +25,7 @@ def trainBC(
 	lr,
 	device='cpu',
 	logInterval=1000,
-	alpha=0.1,
-	gamma=1.0,
-	writer=None,
-	prefDataTest=None,
-	evalInterval=1000,
+	evaluator=None,
 	stepOffset=0,
 ):
 	obs, actions = buildBCDataset(prefData)
@@ -71,15 +54,10 @@ def trainBC(
 		loss.backward()
 		optimizer.step()
 
-		# per-step curve: BC loss
-		if writer is not None:
-			writer.add_scalar('loss/bc', loss.item(), gStep)
-
-		# periodic curves: raw preference accuracy on the full train and test sets
-		if writer is not None and step % evalInterval == 0:
-			_logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, gStep)
-			if prefDataTest is not None:
-				_logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, gStep)
+		# TensorBoard: per-step BC loss, plus periodic evals on their intervals (tbLogging.py)
+		if evaluator is not None:
+			evaluator.logLoss('bcLoss', loss.item(), gStep)
+			evaluator.maybeLog(policy, gStep)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{bcSteps}  bc_loss: {loss.item():.4f}')

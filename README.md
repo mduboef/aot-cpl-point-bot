@@ -71,11 +71,13 @@ PointBot is a 2D continuous-control environment. The agent starts at `(-170, -13
 
 ## Training Protocol
 
+The reference policy π_ref is trained once with pure BC (`python3 train.py --method ref`, configured by `configs/ref.yaml`) and saved to `models/REF_POLICY/`; rerunning it warns and overwrites that folder. Every other method loads it from there and errors out if it hasn't been trained yet.
+
 All methods follow a shared three-phase structure:
 
 | Phase | Steps | What trains |
 |---|---|---|
-| π_ref BC | `ref_bc_steps` | reference policy only (pAOT/uAOT-ref only) |
+| π_ref BC | `bc_steps` in `ref.yaml` | reference policy only, trained once by `--method ref` |
 | π_θ BC warmup | `theta_bc_steps` | policy under BC |
 | Contrastive | `contrastive_steps` | policy under method-specific loss |
 
@@ -120,6 +122,7 @@ Next Steps:
         Every X steps log:
             - Current eval metrics (Orig-Pair Acc, pAOT Loss, pAOT Viol Rate, uAOT Loss, uAOT Viol Rate)
             - Avg log likelihood for each action in the preffered set
+                 $$\text{avg pref log prob}(\pi_\theta, \mathcal{D}^+)=\frac{1}{\sum_{\sigma^+\in\mathcal{D}^+} |\sigma^+|}\sum_{\sigma^+\in\mathcal{D}^+}\sum_{(s_t,a_t)\in \sigma^+} \log \pi_\theta(a_t | s_t)$$
             - Avg log likelihood for each action in the rejected set
             - Avg reward from 25 rollouts
     3. Rerun training
@@ -137,6 +140,10 @@ Next Steps:
             - CPLuAOT_ref w λ=0.5
             - CPLuAOT w λ=0.5
             - CPLpAOT w λ=0.5
+    6. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
+        - Tweak the reward function used to generate preference pairs
+        - Try different λ values
+
 
 <!-- python3 train.py --method cpl_biased
 tensorboard --logdir models -->

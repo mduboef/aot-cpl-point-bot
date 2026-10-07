@@ -1,5 +1,4 @@
 # baseline unbiased CPL (no reference policy)
-ref_bc_steps: 50000
 bc_warmup_steps: 20000   # phase 1: BC warmup of π_θ before contrastive training
 cpl_steps: 30000         # phase 2: CPL contrastive steps
 batch_size: 256          # BC warmup batch (obs, action) pairs
@@ -7,6 +6,9 @@ cpl_batch_size: 64       # contrastive batch (preference pairs per step)
 lr: 0.0001
 alpha: 0.1               # entropy temperature
 gamma: 1.0               # discount in the segment score
-contrastive_bias: 1.0    # λ = 1.0 unbiased CPL (0.5 for the conservative variant)
-log_interval: 500
-eval_interval: 500
+contrastive_bias: 1.0    # bias regularization (λ): downweights negative samples in obj function
+
+log_interval: 500        # how often we print training progress
+eval_interval: 100       # how often we get eval metrics + log likelihood for TensorBoard 
+rollout_interval: 500    # how often we rollout & get avg reward for TensorBoard
+n_eval_rollouts: 25      # rollouts per rollout_interval

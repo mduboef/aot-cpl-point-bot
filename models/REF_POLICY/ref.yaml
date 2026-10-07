@@ -1,0 +1,6 @@
+# reference policy π_ref (pure BC), saved to models/REF_POLICY/ and shared by every other method
+bc_steps: 50000
+batch_size: 256
+lr: 0.0001
+
+log_interval: 500        # how often we print training progress

@@ -46,8 +46,6 @@
 import numpy as np
 import torch
 
-from evaluate import preferenceAccuracy
-
 
 # uaot_loss
 # Formalization steps 5 and 6 of "CPL with uAOT" in finalReport.tex.
@@ -165,19 +163,6 @@ def computeRefScores(refPolicy, cache, alpha, gamma, device):
 	return posRef, negRef  # (n,) CPU each
 
 
-# _logRawAccuracy
-# Evaluate and log overall + per-type preference accuracy on a raw (non-OT)
-# preference set. Leaves the policy back in train mode (preferenceAccuracy flips it
-# to eval) so the training loop can continue uninterrupted.
-def _logRawAccuracy(writer, tag, policy, prefData, alpha, gamma, device, step):
-	acc = preferenceAccuracy(policy, prefData, alpha, gamma, device)
-	policy.train()
-	writer.add_scalar(f'accuracy/{tag}', acc['overall'], step)
-	for st, d in acc['perType'].items():
-		writer.add_scalar(f'{tag}PerType/type_{st}', d['accuracy'], step)
-	return acc['overall']
-
-
 # trainCPLuAOT
 # Phase 3: uAOT contrastive training of π_θ.
 #
@@ -206,9 +191,7 @@ def trainCPLuAOT(
 	gamma=1.0,
 	device='cpu',
 	logInterval=1000,
-	writer=None,
-	prefDataTest=None,
-	evalInterval=1000,
+	evaluator=None,
 	stepOffset=0,
 ):
 	n = len(prefData)
@@ -249,16 +232,10 @@ def trainCPLuAOT(
 		loss.backward()
 		optimizer.step()
 
-		# per-step curves: uAOT loss and OT-matched accuracy on the sampled batch
-		if writer is not None:
-			writer.add_scalar('loss/uaot', loss.item(), gStep)
-			writer.add_scalar('accuracy/otUnpaired', accuracy.item(), gStep)
-
-		# periodic curves: raw (non-OT) preference accuracy on the full train and test sets
-		if writer is not None and step % evalInterval == 0:
-			_logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, gStep)
-			if prefDataTest is not None:
-				_logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, gStep)
+		# TensorBoard: per-step contrastive loss, plus periodic evals on their intervals (tbLogging.py)
+		if evaluator is not None:
+			evaluator.logLoss('contrastiveLoss', loss.item(), gStep)
+			evaluator.maybeLog(policy, gStep)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{uaotSteps}  uaot_loss: {loss.item():.4f}  accuracy: {accuracy.item():.3f}')
