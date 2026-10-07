@@ -20,7 +20,7 @@ drive.mount('/content/drive')
 # %cd /content/aot-cpl-point-bot
 
 # sanity check
-import torch, pickle
+import torch, pickle, subprocess
 print("CUDA:", torch.cuda.is_available())
 for p in ["data/trainingData/trainPreferences.pkl", "data/testingData/testPreferences.pkl"]:
     with open(p, "rb") as f:
@@ -28,16 +28,17 @@ for p in ["data/trainingData/trainPreferences.pkl", "data/testingData/testPrefer
 
 # check if reference policy is stored in GH models directory
 print("REF_POLICY cached:", __import__("os").path.isfile("models/REF_POLICY/policy.pt"))
-# TODO if no ref policy train a BC ref policy
+# if no ref policy, train a BC ref policy
 if not __import__("os").path.isfile("models/REF_POLICY/policy.pt"):
   print("No reference policy saved. Training one now.")
+  subprocess.run(["python3", "train.py", "--method", "ref"], check=True)
 
 # Commented out IPython magic to ensure Python compatibility.
 # %load_ext tensorboard
 # %tensorboard --logdir models
 
 # train all six methods at once, save each to Drive when it finishes
-import subprocess, os, re, shutil, datetime, time
+import os, re, shutil, datetime, time
 
 methods   = ["bc", "cpl", "cpl_biased", "cpl_paot", "cpl_uaot", "cpl_uaot_ref"]
 stamp     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -90,6 +91,7 @@ print("\nALL DONE →", driveRoot)
 import os, re, json
 
 methods = ["bc", "cpl", "cpl_biased", "cpl_paot", "cpl_uaot", "cpl_uaot_ref"]
+
 split   = "test"  # held-out set; switch to "train" to see fit on training pairs
 
 # for each method pick the run dir created this session (highest N for the exact tag)
@@ -104,18 +106,19 @@ def latestRunDir(method):
     ]
     return os.path.join("models", max(matches)[1]) if matches else None
 
-header = ["Method", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate"]
+header = ["Method", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate", "Avg Reward"]
 rows = []
 for m in methods:
     runDir = latestRunDir(m)
     if runDir is None:
-        rows.append([m, "no run dir", "", "", "", ""])
+        rows.append([m, "no run dir", "", "", "", "", ""])
         continue
     with open(os.path.join(runDir, "eval_stats.json")) as f:
         stats = json.load(f)
     acc   = stats["preferenceAccuracy"][split]["overall"]
     paot  = stats["paotLoss"][split]
     uaot  = stats["uaotLoss"][split]
+    avgReward = sum(r["reward"] for r in stats["rollouts"]) / len(stats["rollouts"])
     rows.append([
         m,
         f"{acc:.1%}",
@@ -123,9 +126,10 @@ for m in methods:
         f"{paot['violationFreq']:.1%}",
         f"{uaot['uaotLoss']:.4f}",
         f"{uaot['violationFreq']:.1%}",
+        f"{avgReward:.1f}",
     ])
 
-# print an aligned table
+# print table of eval metrics
 widths = [max(len(str(r[i])) for r in ([header] + rows)) for i in range(len(header))]
 def fmtRow(r):
     return "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r))
