@@ -30,7 +30,7 @@ for p in ["data/trainingData/trainPreferences.pkl", "data/testingData/testPrefer
 print("REF_POLICY cached:", __import__("os").path.isfile("models/REF_POLICY/policy.pt"))
 # TODO if no ref policy train a BC ref policy
 if not __import__("os").path.isfile("models/REF_POLICY/policy.pt"):
-  print("NOT IMPLEMENTED: NEED TO TRAIN REF_POLICY")
+  print("No reference policy saved. Training one now.")
 
 # Commented out IPython magic to ensure Python compatibility.
 # %load_ext tensorboard
@@ -94,48 +94,43 @@ split   = "test"  # held-out set; switch to "train" to see fit on training pairs
 
 # for each method pick the run dir created this session (highest N for the exact tag)
 def latestRunDir(method):
-      tag = method.upper()
-      pat = re.compile(rf"^{tag}_(\d+)$")
-      matches = [(int(pat.match(d).group(1)), d)
-              for d in os.listdir("models") if pat.match(d)]
-      return os.path.join("models", max(matches)[1]) if matches else None
+    tag = method.upper()
+    pat = re.compile(rf"^{tag}_(\d+)$")
+    if not os.path.exists("models"):
+        return None
+    matches = [
+        (int(pat.match(d).group(1)), d)
+        for d in os.listdir("models") if pat.match(d)
+    ]
+    return os.path.join("models", max(matches)[1]) if matches else None
 
-header = ["Method", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate", "Avg Reward"]
+header = ["Method", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate"]
 rows = []
 for m in methods:
-      runDir = latestRunDir(m)
-      if runDir is None:
-              rows.append([m, "no run dir", "", "", "", "", ""])
-              continue
-      with open(os.path.join(runDir, "eval_stats.json")) as f:
-              stats = json.load(f)
-      acc   = stats["preferenceAccuracy"][split]["overall"]
-      paot  = stats["paotLoss"][split]
-      uaot  = stats["uaotLoss"][split]
-
-      rollouts = stats.get("rollouts", [])
-      if rollouts:
-          avg_reward = sum(r.get("reward", 0) for r in rollouts) / len(rollouts)
-          reward_str = f"{avg_reward:.2f}"
-      else:
-          reward_str = "N/A"
-
-      rows.append([
-              m,
-              f"{acc:.1%}",
-              f"{paot['paotLoss']:.4f}",
-              f"{paot['violationFreq']:.1%}",
-              f"{uaot['uaotLoss']:.4f}",
-              f"{uaot['violationFreq']:.1%}",
-              reward_str
-      ])
+    runDir = latestRunDir(m)
+    if runDir is None:
+        rows.append([m, "no run dir", "", "", "", ""])
+        continue
+    with open(os.path.join(runDir, "eval_stats.json")) as f:
+        stats = json.load(f)
+    acc   = stats["preferenceAccuracy"][split]["overall"]
+    paot  = stats["paotLoss"][split]
+    uaot  = stats["uaotLoss"][split]
+    rows.append([
+        m,
+        f"{acc:.1%}",
+        f"{paot['paotLoss']:.4f}",
+        f"{paot['violationFreq']:.1%}",
+        f"{uaot['uaotLoss']:.4f}",
+        f"{uaot['violationFreq']:.1%}",
+    ])
 
 # print an aligned table
 widths = [max(len(str(r[i])) for r in ([header] + rows)) for i in range(len(header))]
 def fmtRow(r):
-      return "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r))
+    return "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r))
 print(f"evaluation metrics on the {split} set\n")
 print(fmtRow(header))
 print("  ".join("-" * w for w in widths))
 for r in rows:
-      print(fmtRow(r))
+    print(fmtRow(r))

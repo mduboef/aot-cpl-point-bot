@@ -94,8 +94,9 @@ def main():
 	policy = MLPGaussianActor(obs_dim=obsDim, act_dim=actDim, hidden_sizes=(256, 256), activation=nn.Tanh)
 
 
-	# number of rollouts generated after training
+	# number of rollouts generated after training (for plotting and final avg reward)
 	nRollouts = 50
+
 	# ? what do these params control
 		# supposed used to convert advantage function in cpl-based policies to "preference scores", not sure what that means though
 	alphaEval = cfg.get('alpha', 0.1)
@@ -170,7 +171,7 @@ def main():
 
 		# phase 2: preference learning kicks in
 
-		# baseline CPL (λ = 1.0)
+		# CPL (λ = 1.0)
 		if args.method == 'cpl':
 			print('\n--- CPL on π_θ ---')
 			policy = trainCPL(
@@ -188,9 +189,11 @@ def main():
 			)
 
 
-		# biased CPL (λ = 0.5)
+		# biased CPL (λ < 1.0)
 		elif args.method == 'cpl_biased':
-			print('\n---CPL (λ = 0.5) on π_θ ---')
+			# get λ from config
+			biasReg = cfg['contrastive_bias']
+			print(f'\n---CPL (λ = {biasReg}) on π_θ ---')
 			policy = trainCPL(
 				policy, prefDataTrain,
 				cplSteps    = cfg['cpl_steps'],
@@ -222,7 +225,9 @@ def main():
 			)
 
 
-		# CPL uAOT (no reference policy → raw scores; cpl_uaot_ref → log-ratio scores)
+		# CPL uAOT (2 versions)
+			# cpl_uaot → raw scores
+			# cpl_uaot_ref → log-ratio scores using ref policy
 		elif args.method in ('cpl_uaot', 'cpl_uaot_ref'):
 			useRef = args.method == 'cpl_uaot_ref'
 			print(f'\n--- CPL uAOT{" (ref)" if useRef else ""} on π_θ ---')

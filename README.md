@@ -113,12 +113,12 @@ Early training runs suggest that the distributional methods are doing well in th
   cpl_uaot      84.1%          6.5719     15.3%           0.0002     0.0%
   cpl_uaot_ref  84.9%          3.5097     13.8%           0.0006     0.0%
 
-However, looking at the rollout plots for these models, things dont look good. The agent is circling in a strange direction totally away from the goal. It is weird totally out of distribution behavior. The only model that don't seem to suffer from this is the CPL with bias regularization of 0.5 baseline model. That one seems to be persuing the goal reasonably well (following dominant strategies, mostly the majority dominant strategy #1). This indicates to me that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and trying variants of distributionally aligned CPL with bias regularization of 0.5 downweighting the "score" for the rejected element of each pairing. The CPL paper says λ=0.1 tends to work well. I should probably try that as well as λ=0.5.
+However, looking at the rollout plots for these models, things dont look good. The agent is circling in a strange direction totally away from the goal. It is weird totally out of distribution behavior. The only model that don't seem to suffer from this is the CPL with bias regularization of 0.5 baseline model. That one seems to be persuing the goal reasonably well (following dominant strategies, mostly the majority dominant strategy #1). This indicates to me that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and trying variants of distributionally aligned CPL with bias regularization between downweighting the "score" for the rejected element of each pairing. I've hear CPL works well with λ between 0.1 and 0.5.
 
 Next Steps:
     1. DONE - Clean Up Google Drive where results are stored
     2. DONE - Add Avg Reward to Evaluation Table (colab last cell)
-    3. Clean up TensorBoard logging
+    3. DONE - Clean up TensorBoard logging
         Every X steps log:
             - Current eval metrics (Orig-Pair Acc, pAOT Loss, pAOT Viol Rate, uAOT Loss, uAOT Viol Rate)
             - Avg log likelihood for each action in the preffered set
@@ -129,7 +129,7 @@ Next Steps:
         6 methods:
             - BC
             - CPL (λ=1)
-            - Biased CPL λ=0.5
+            - Biased CPL (λ=0.2)
             - CPLuAOT_ref
             - CPLuAOT
             - CPLpAOT
@@ -137,12 +137,13 @@ Next Steps:
     4. Add bias reguarlization term (λ) to distributional CPL objective function
     5. Train distributional CPL models
         3 methods:
-            - CPLuAOT_ref w λ=0.5
-            - CPLuAOT w λ=0.5
-            - CPLpAOT w λ=0.5
-    6. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
+            - CPLuAOT_ref w λ=0.2
+            - CPLuAOT w λ=0.2
+            - CPLpAOT w λ=0.2
+    6. Clean up algo code for readability
+    7. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
         - Tweak the reward function used to generate preference pairs
-        - Try different λ values
+        - Try different λ values from 0.1 to 0.5
 
 
 <!-- python3 train.py --method cpl_biased
