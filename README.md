@@ -65,20 +65,6 @@ contrastive pairs for each split, writing `trainingData/trainPreferences.pkl` an
 3. Rollout diagrams show CPL collapsing to a single corridor through the obstacle maze
    while AOT variants produce trajectories spanning multiple distinct routes.
 
-## Early Findings
-Early training runs suggest that the distributional methods are doing well in their classification-based objectives, sucessfully prefferring the "correct" element of the various pairing we construct and test them on.
-
-  Method        Orig-Pair Acc  pAOT Loss  pAOT Viol Rate  uAOT Loss  uAOT Viol Rate
-  ------------  -------------  ---------  --------------  ---------  --------------
-  bc            72.7%          0.9796     51.7%           0.9789     46.7%
-  cpl           91.6%          0.0747     0.8%            0.0010     0.0%
-  cpl_biased    80.2%          0.2499     0.0%            0.4333     13.9%
-  cpl_paot      91.6%          0.0031     0.0%            0.0191     1.0%
-  cpl_uaot      84.1%          6.5719     15.3%           0.0002     0.0%
-  cpl_uaot_ref  84.9%          3.5097     13.8%           0.0006     0.0%
-
-However, looking at the rollout plots for these models, things dont look good. The agent is circling in a strange direction totally away from the goal. It is weird totally out of distribution behavior. The only model that don't seem to suffer from this is the CPL with bias regularization of 0.1 baseline model. That one seems to be persuing the goal reasonably well (following dominant strategies, mostly the majority dominant strategy #1). This indicates to me that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and trying variants of distributionally aligned CPL with bias regularization of 0.1 downweighting the "score" for the rejected element of each pairing.
-
 ## Environment: PointBot
 
 PointBot is a 2D continuous-control environment. The agent starts at `(-170, -130)` and must reach the origin `(0, 0)`. The state is `(x, vx, y, vy)` and the action is a 2D force `(fx, fy)`. Linear dynamics with air resistance and Gaussian noise.
@@ -111,6 +97,46 @@ pickle
 ```
 
 See `requirements.txt` for pinned versions.
+
+
+## Current State
+Early training runs suggest that the distributional methods are doing well in their classification-based objectives, sucessfully prefferring the "correct" element of the various pairing we construct and test them on.
+
+  Method        Orig-Pair Acc  pAOT Loss  pAOT Viol Rate  uAOT Loss  uAOT Viol Rate
+  ------------  -------------  ---------  --------------  ---------  --------------
+  bc            72.7%          0.9796     51.7%           0.9789     46.7%
+  cpl           91.6%          0.0747     0.8%            0.0010     0.0%
+  cpl_biased    80.2%          0.2499     0.0%            0.4333     13.9%
+  cpl_paot      91.6%          0.0031     0.0%            0.0191     1.0%
+  cpl_uaot      84.1%          6.5719     15.3%           0.0002     0.0%
+  cpl_uaot_ref  84.9%          3.5097     13.8%           0.0006     0.0%
+
+However, looking at the rollout plots for these models, things dont look good. The agent is circling in a strange direction totally away from the goal. It is weird totally out of distribution behavior. The only model that don't seem to suffer from this is the CPL with bias regularization of 0.5 baseline model. That one seems to be persuing the goal reasonably well (following dominant strategies, mostly the majority dominant strategy #1). This indicates to me that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and trying variants of distributionally aligned CPL with bias regularization of 0.5 downweighting the "score" for the rejected element of each pairing. The CPL paper says λ=0.1 tends to work well. I should probably try that as well as λ=0.5.
+
+Next Steps:
+    1. DONE - Clean Up Google Drive where results are stored
+    2. DONE - Add Avg Reward to Evaluation Table (colab last cell)
+    3. Clean up TensorBoard logging
+        Every X steps log:
+            - Current eval metrics (Orig-Pair Acc, pAOT Loss, pAOT Viol Rate, uAOT Loss, uAOT Viol Rate)
+            - Avg log likelihood for each action in the preffered set
+            - Avg log likelihood for each action in the rejected set
+            - Avg reward from 25 rollouts
+    3. Rerun training
+        6 methods:
+            - BC
+            - CPL (λ=1)
+            - Biased CPL λ=0.5
+            - CPLuAOT_ref
+            - CPLuAOT
+            - CPLpAOT
+
+    4. Add bias reguarlization term (λ) to distributional CPL objective function
+    5. Train distributional CPL models
+        3 methods:
+            - CPLuAOT_ref w λ=0.5
+            - CPLuAOT w λ=0.5
+            - CPLpAOT w λ=0.5
 
 <!-- python3 train.py --method cpl_biased
 tensorboard --logdir models -->
