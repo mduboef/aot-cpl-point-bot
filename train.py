@@ -116,7 +116,7 @@ def main():
 	print(f'tensorboard logdir → {os.path.join(runDir, "tb")}')
 
 	# number of rollouts generated after training
-	nRollouts = 25
+	nRollouts = 50
 	# ? what do these params control
 		# supposed used to convert advantage function in cpl-based policies to "preference scores", not sure what that means though
 	alphaEval = cfg.get('alpha', 0.1)
@@ -171,30 +171,43 @@ def main():
 
 
 
+	# step offset so a BC warmup phase is plotted before the preference-learning phase
+	warmupSteps = cfg.get('bc_warmup_steps', 0)
+
 	# train using pure BC
 	if  args.method == 'bc':
 		print('\n--- Pure BC training of π_θ ---')
 		policy = trainBC(
 			policy, prefDataTrain,
-			bcSteps     = cfg['bc_steps'],
-			batchSize   = cfg['batch_size'],
-			lr          = cfg['lr'],
-			device      = device,
-			logInterval = cfg['log_interval'],
+			bcSteps      = cfg['bc_steps'],
+			batchSize    = cfg['batch_size'],
+			lr           = cfg['lr'],
+			device       = device,
+			logInterval  = cfg['log_interval'],
+			alpha        = alphaEval,
+			gamma        = gammaEval,
+			writer       = writer,
+			prefDataTest = prefDataTest,
+			evalInterval = cfg.get('eval_interval', cfg['log_interval']),
 		)
 
 
 	else:
 		# phase 1: BC warmup of π_θ
-		if cfg.get('bc_warmup_steps', 0) > 0:
+		if warmupSteps > 0:
 			print('\n--- BC warmup of π_θ ---')
 			policy = trainBC(
 				policy, prefDataTrain,
-				bcSteps     = cfg['bc_warmup_steps'],
-				batchSize   = cfg['batch_size'],
-				lr          = cfg['lr'],
-				device      = device,
-				logInterval = cfg['log_interval'],
+				bcSteps      = warmupSteps,
+				batchSize    = cfg['batch_size'],
+				lr           = cfg['lr'],
+				device       = device,
+				logInterval  = cfg['log_interval'],
+				alpha        = alphaEval,
+				gamma        = gammaEval,
+				writer       = writer,
+				prefDataTest = prefDataTest,
+				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
 			)
 		
 
@@ -216,6 +229,7 @@ def main():
 				writer       = writer,
 				prefDataTest = prefDataTest,
 				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+				stepOffset   = warmupSteps,
 			)
 
 
@@ -235,6 +249,7 @@ def main():
 				writer       = writer,
 				prefDataTest = prefDataTest,
 				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+				stepOffset   = warmupSteps,
 			)
 
 		# CPL pAOT
@@ -252,6 +267,7 @@ def main():
 				writer       = writer,
 				prefDataTest = prefDataTest,
 				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+				stepOffset   = warmupSteps,
 			)
 
 
@@ -272,6 +288,7 @@ def main():
 				writer       = writer,
 				prefDataTest = prefDataTest,
 				evalInterval = cfg.get('eval_interval', cfg['log_interval']),
+				stepOffset   = warmupSteps,
 			)
 
 

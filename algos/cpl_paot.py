@@ -8,9 +8,9 @@
 # are handled by trainBC() from algos/bc.py, called from train.py.
 #
 # Three-phase structure (driven by train.py):
-#   Phase 1 — BC-train π_ref with trainBC()
-#   Phase 2 — BC-warmup π_θ with trainBC()  (optional; skip by setting theta_bc_steps=0)
-#   Phase 3 — pAOT contrastive training with trainCPLpAOT()  ← this file
+#   Phase 1 - BC-train π_ref with trainBC()
+#   Phase 2 - BC-warmup π_θ with trainBC()  (optional; skip by setting theta_bc_steps=0)
+#   Phase 3 - pAOT contrastive training with trainCPLpAOT()  ← this file
 #
 # Data format (preference pairs from data/preferenceGen.py):
 #   pos_states:  np array (T+1, obs_dim)
@@ -28,15 +28,15 @@ from evaluate import preferenceAccuracy
 # paot_loss
 # Formalization steps 5 and 6 of "CPL with pAOT" in finalReport.tex.
 #
-# u_theta: per-pair policy margins,    shape (n,) — u_θ^i = score(σ+; π_θ) - score(σ-; π_θ)
-# v_ref:   per-pair reference margins, shape (n,) — v_ref^i = score(σ+; π_ref) - score(σ-; π_ref)
+# u_theta: per-pair policy margins,    shape (n,) - u_θ^i = score(σ+; π_θ) - score(σ-; π_θ)
+# v_ref:   per-pair reference margins, shape (n,) - v_ref^i = score(σ+; π_ref) - score(σ-; π_ref)
 #
-# Step 5 — sort both margin sets independently (1D optimal transport, northwest corner):
+# Step 5 - sort both margin sets independently (1D optimal transport, northwest corner):
 #   u_θ^(1) ≤ u_θ^(2) ≤ ... ≤ u_θ^(n)
 #   v_ref^(1) ≤ v_ref^(2) ≤ ... ≤ v_ref^(n)
 #   i-th lowest policy margin is matched with the i-th lowest reference margin.
 #
-# Step 6 — CPL loss on OT-matched pairs:
+# Step 6 - CPL loss on OT-matched pairs:
 #   L(θ) = (1/n) Σ_i -log [ exp(u_θ^(i)) / (exp(u_θ^(i)) + exp(v_ref^(i))) ]
 def paot_loss(u_theta, v_ref):
 	u_sorted = torch.sort(u_theta).values
@@ -53,7 +53,6 @@ def paot_loss(u_theta, v_ref):
 	return loss, accuracy
 
 
-# _cachePrefTensors
 # Convert all numpy arrays in prefData to float32 tensors once before training.
 # Avoids repeated numpy→tensor conversions inside the training loop.
 # Returns a list of dicts with pre-allocated device tensors.
@@ -191,6 +190,7 @@ def trainCPLpAOT(
 	writer=None,
 	prefDataTest=None,
 	evalInterval=1000,
+	stepOffset=0,
 ):
 	n = len(prefData)
 
@@ -207,6 +207,8 @@ def trainCPLpAOT(
 	optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
 
 	for step in range(1, paotSteps + 1):
+		# global step continues past any BC warmup so both phases share one x-axis
+		gStep   = stepOffset + step
 		indices = np.random.randint(0, n, size=batchSize)
 
 		# compute policy margins (differentiable) for this batch
@@ -223,15 +225,15 @@ def trainCPLpAOT(
 
 		# per-step curves: pAOT loss and OT-paired accuracy on the sampled batch
 		if writer is not None:
-			writer.add_scalar('loss/paot', loss.item(), step)
-			writer.add_scalar('accuracy/otPaired', accuracy.item(), step)
+			writer.add_scalar('loss/paot', loss.item(), gStep)
+			writer.add_scalar('accuracy/otPaired', accuracy.item(), gStep)
 
 		# periodic curves: raw (non-OT) preference accuracy on the full train and test sets
 		if writer is not None and step % evalInterval == 0:
-			rawTrain = _logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, step)
+			rawTrain = _logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, gStep)
 			rawTest  = None
 			if prefDataTest is not None:
-				rawTest = _logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, step)
+				rawTest = _logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, gStep)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{paotSteps}  paot_loss: {loss.item():.4f}  accuracy: {accuracy.item():.3f}')

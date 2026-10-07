@@ -209,6 +209,7 @@ def trainCPLuAOT(
 	writer=None,
 	prefDataTest=None,
 	evalInterval=1000,
+	stepOffset=0,
 ):
 	n = len(prefData)
 	useRef = refPolicy is not None
@@ -228,6 +229,8 @@ def trainCPLuAOT(
 	optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
 
 	for step in range(1, uaotSteps + 1):
+		# global step continues past any BC warmup so both phases share one x-axis
+		gStep   = stepOffset + step
 		indices = np.random.randint(0, n, size=batchSize)
 
 		# per-segment policy scores for this batch (differentiable)
@@ -248,14 +251,14 @@ def trainCPLuAOT(
 
 		# per-step curves: uAOT loss and OT-matched accuracy on the sampled batch
 		if writer is not None:
-			writer.add_scalar('loss/uaot', loss.item(), step)
-			writer.add_scalar('accuracy/otUnpaired', accuracy.item(), step)
+			writer.add_scalar('loss/uaot', loss.item(), gStep)
+			writer.add_scalar('accuracy/otUnpaired', accuracy.item(), gStep)
 
 		# periodic curves: raw (non-OT) preference accuracy on the full train and test sets
 		if writer is not None and step % evalInterval == 0:
-			_logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, step)
+			_logRawAccuracy(writer, 'rawTrain', policy, prefData, alpha, gamma, device, gStep)
 			if prefDataTest is not None:
-				_logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, step)
+				_logRawAccuracy(writer, 'rawTest', policy, prefDataTest, alpha, gamma, device, gStep)
 
 		if step % logInterval == 0:
 			print(f'  step {step:>6}/{uaotSteps}  uaot_loss: {loss.item():.4f}  accuracy: {accuracy.item():.3f}')
