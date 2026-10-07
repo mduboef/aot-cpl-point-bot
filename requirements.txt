@@ -3,3 +3,4 @@ gym>=0.26
 numpy>=1.24
 matplotlib>=3.7
 pyyaml>=6.0
+colorama>=0.4
