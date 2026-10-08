@@ -102,18 +102,29 @@ See `requirements.txt` for pinned versions.
 
 
 ## Current State
-Early training runs suggest that the distributional methods are doing well in their classification-based objectives, sucessfully prefferring the "correct" element of the various pairing we construct and test them on.
+Early training runs suggest that the distributional methods (CPL pAOT more so than the uAOT variants) are doing well in their classification-based objectives, sucessfully prefferring the "correct" element of the various pairing we construct and test them on.
 
-  Method        Orig-Pair Acc  pAOT Loss  pAOT Viol Rate  uAOT Loss  uAOT Viol Rate
-  ------------  -------------  ---------  --------------  ---------  --------------
-  bc            72.7%          0.9796     51.7%           0.9789     46.7%
-  cpl           91.6%          0.0747     0.8%            0.0010     0.0%
-  cpl_biased    80.2%          0.2499     0.0%            0.4333     13.9%
-  cpl_paot      91.6%          0.0031     0.0%            0.0191     1.0%
-  cpl_uaot      84.1%          6.5719     15.3%           0.0002     0.0%
-  cpl_uaot_ref  84.9%          3.5097     13.8%           0.0006     0.0%
+evaluation metrics on the test set
 
-However, looking at the rollout plots for these models, things dont look good. The agent is circling in a strange direction totally away from the goal. It is weird totally out of distribution behavior. The only model that don't seem to suffer from this is the CPL with bias regularization of 0.5 baseline model. That one seems to be persuing the goal reasonably well (following dominant strategies, mostly the majority dominant strategy #1). This indicates to me that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and trying variants of distributionally aligned CPL with bias regularization between downweighting the "score" for the rejected element of each pairing. I've hear CPL works well with λ between 0.1 and 0.5.
+Method        Orig-Pair Acc  pAOT Loss  pAOT Viol Rate  uAOT Loss  uAOT Viol Rate  Avg Reward
+------------  -------------  ---------  --------------  ---------  --------------  ----------
+bc            72.9%          0.6505     23.8%           0.7063     36.6%           -8686.6   
+cpl           91.7%          0.0372     0.5%            0.0023     0.0%            -9934.4   
+cpl_biased    75.4%          1.2867     57.7%           1.2229     66.2%           -7122.2   
+cpl_paot      92.3%          0.0013     0.0%            0.0025     0.0%            -5077.1   
+cpl_uaot      82.5%          5.7174     16.7%           0.0006     0.0%            -42307.6  
+cpl_uaot_ref  84.4%          5.9986     14.8%           0.0001     0.0%            -8837.5   
+
+However, looking at the rollout plots for the final policies, things look strange:
+    BC                  : Sticks to the majority dominant strategy in a "messy"/inefficent way.
+    CPL                 : All rollouts starts to follow minority dominant strategy then spiral far off course together in the wrong direction
+    CPL Biased (λ=0.2)  : The only pluralistic looking policy, seemingly taking "messy" versions of the two dominant strategies
+    CPL pAOT            : Stick to minority dominant strategy, only a little "messy" in execution with a couple overshooting the goal and having to turn around to hit it.
+    CPL uAOT            : All rollouts immedately shoot in the wrong direction together.
+    CPL uAOT_ref        : All rollouts start to follow majority dominant strategy but end up circling the goal at the end instead of hitting it. Lost at end.
+
+
+The fact that CPL Biased demonstrates both strategies while CPL pAOT sticks to the minority dominant strategy is not what I expected. This could be the faulty of the underlying reward function I am using and the preference pairs I am starting. Tweaking that may induce the preference collapse failure mode I am excecting to see from both CPL and CPL Biased. I believe that without any sort of regularizer to downweight the "score" for the negative segment of each pairing in the loss function, the models are learning that the best way to optimize the loss is to crash the likelihood of in-distribution strategies. This is something the authors of the CPL paper point out can happen with finite datasets. I am currently working on cleaning up my code and implementing variants of distributionally aligned CPL with bias regularization between downweighting the "score" for the rejected element of each pairing. I've hear CPL works well with λ between 0.1 and 0.5.
 
 Next Steps:
     1. DONE - Clean Up Google Drive where results are stored
@@ -125,7 +136,7 @@ Next Steps:
                  $$\text{avg pref log prob}(\pi_\theta, \mathcal{D}^+)=\frac{1}{\sum_{\sigma^+\in\mathcal{D}^+} |\sigma^+|}\sum_{\sigma^+\in\mathcal{D}^+}\sum_{(s_t,a_t)\in \sigma^+} \log \pi_\theta(a_t | s_t)$$
             - Avg log likelihood for each action in the rejected set
             - Avg reward from 25 rollouts
-    3. Rerun training
+    3. DONE - Rerun training
         6 methods:
             - BC
             - CPL (λ=1)
@@ -141,9 +152,11 @@ Next Steps:
             - CPLuAOT w λ=0.2
             - CPLpAOT w λ=0.2
     6. Clean up algo code for readability
-    7. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
+    7. Double check pAOT and uAOT eval code
+    8. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
         - Tweak the reward function used to generate preference pairs
         - Try different λ values from 0.1 to 0.5
+    9. Test methods with many different starting seeds
 
 
 <!-- python3 train.py --method cpl_biased
