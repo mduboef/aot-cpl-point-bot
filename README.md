@@ -152,7 +152,7 @@ Next Steps:
             - CPLuAOT w λ=0.2
             - CPLpAOT w λ=0.2
     6. Clean up algo code for readability
-    7. Double check pAOT and uAOT eval code
+    7. Double check pAOT and uAOT eval code (λ=1 for these evals)
     8. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
         - Tweak the reward function used to generate preference pairs
         - Try different λ values from 0.1 to 0.5

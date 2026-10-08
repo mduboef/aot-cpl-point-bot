@@ -6,6 +6,7 @@ uaot_batch_size: 64      # contrastive batch (preference pairs per step → pool
 lr: 0.0001
 alpha: 0.1               # entropy temperature
 gamma: 1.0               # discount in the segment score
+contrastive_bias: 0.2    # bias regularization (λ): downweights negative samples in obj function
 
 log_interval: 500        # how often we print training progress
 eval_interval: 100       # how often we get eval metrics + log likelihood for TensorBoard 

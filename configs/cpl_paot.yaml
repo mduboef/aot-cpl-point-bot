@@ -5,6 +5,7 @@ paot_batch_size: 32
 lr: 0.0001
 alpha: 0.1
 gamma: 1.0
+contrastive_bias: 0.2    # bias regularization (λ): downweights negative samples in obj function
 
 log_interval: 500        # how often we print training progress
 eval_interval: 100       # how often we get eval metrics + log likelihood for TensorBoard 

@@ -13,11 +13,11 @@ drive.mount('/content/drive')
 
 # Commented out IPython magic to ensure Python compatibility.
 # clone github repo
-# clone to fast local SSD
 # %cd /content
 !rm -rf aot-cpl-point-bot
 !git clone https://github.com/mduboef/aot-cpl-point-bot.git
 # %cd /content/aot-cpl-point-bot
+!pip install -q -r requirements.txt
 
 # sanity check
 import torch, pickle, subprocess
