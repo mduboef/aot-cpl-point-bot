@@ -151,6 +151,8 @@ Next Steps:
             - CPLuAOT_ref w λ=0.2
             - CPLuAOT w λ=0.2
             - CPLpAOT w λ=0.2
+    5. Train distributional CPL pAOT with different regularization values (λ) models
+        - Try λ ∈ {0.9, 0.75, 0.5, 0.1}
     6. Clean up algo code for readability
     7. Double check pAOT and uAOT eval code (λ=1 for these evals)
     8. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL

@@ -1,4 +1,4 @@
-import os, pickle, argparse, json, shutil
+import os, re, pickle, argparse, json
 import yaml
 import numpy as np
 import torch
@@ -34,7 +34,7 @@ def getRunDir(modelsDir, methodName):
 	return runDir
 
 
-def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, paotStats=None, uaotStats=None):
+def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, cfg, paotStats=None, uaotStats=None):
 	# policy weights
 	torch.save(policy.state_dict(), os.path.join(runDir, 'policy.pt'))
 
@@ -48,8 +48,15 @@ def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, conf
 	with open(os.path.join(runDir, 'eval_stats.json'), 'w') as f:
 		json.dump(results, f, indent=2)
 
-	# copy yaml config file used in training into runDir
-	shutil.copy(configPath, os.path.join(runDir, os.path.basename(configPath)))
+	# copy yaml config file used in training into runDir, rewriting contrastive_bias to
+	# the λ actually used so a -bias override is recorded with the run
+	with open(configPath) as f:
+		cfgText = f.read()
+	if 'contrastive_bias' in cfg:
+		cfgText = re.sub(r'^contrastive_bias:\s*[^\s#]+',
+			f'contrastive_bias: {cfg["contrastive_bias"]}', cfgText, flags=re.MULTILINE)
+	with open(os.path.join(runDir, os.path.basename(configPath)), 'w') as f:
+		f.write(cfgText)
 
 	# rollout trajectory plot
 	fig, ax = plt.subplots(figsize=(9, 9))
@@ -63,12 +70,20 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--method', type=str, default='bc',
 		choices=['ref', 'bc', 'cpl', 'cpl_biased', 'cpl_paot', 'cpl_uaot', 'cpl_uaot_ref'])
+	# optional override of the config's contrastive_bias (λ), e.g. --method cpl_paot -bias 0.3
+	parser.add_argument('-bias', '--bias', type=float, default=None)
 	args = parser.parse_args()
 
 	scriptDir  = os.path.dirname(os.path.abspath(__file__))
 	configPath = os.path.join(scriptDir, 'configs', f'{args.method}.yaml')
 	with open(configPath) as f:
 		cfg = yaml.safe_load(f)
+
+	# -bias overrides the config default; only contrastive methods have a λ
+	if args.bias is not None:
+		if 'contrastive_bias' not in cfg:
+			parser.error(f'-bias is not supported for --method {args.method}')
+		cfg['contrastive_bias'] = args.bias
 
 	device = 'cuda' if torch.cuda.is_available() else 'cpu'		# ? wtf is device? Does it specify the hardware type we will run on?
 	print(f'method: {args.method}  device: {device}')
@@ -210,7 +225,7 @@ def main():
 
 		# CPL pAOT
 		elif args.method == 'cpl_paot':
-			print('\n--- CPL pAOT on π_θ ---')
+			print(f'\n--- CPL pAOT (λ = {cfg["contrastive_bias"]}) on π_θ ---')
 			policy = trainCPLpAOT(
 				policy, refPolicy, prefDataTrain,
 				paotSteps   = cfg['cpl_paot_steps'],
@@ -218,6 +233,7 @@ def main():
 				lr          = cfg['lr'],
 				alpha       = cfg['alpha'],
 				gamma       = cfg['gamma'],
+				bias        = cfg['contrastive_bias'],
 				device      = device,
 				logInterval = cfg['log_interval'],
 				evaluator   = evaluator,
@@ -230,7 +246,7 @@ def main():
 			# cpl_uaot_ref → log-ratio scores using ref policy
 		elif args.method in ('cpl_uaot', 'cpl_uaot_ref'):
 			useRef = args.method == 'cpl_uaot_ref'
-			print(f'\n--- CPL uAOT{" (ref)" if useRef else ""} on π_θ ---')
+			print(f'\n--- CPL uAOT{" (ref)" if useRef else ""} (λ = {cfg["contrastive_bias"]}) on π_θ ---')
 			policy = trainCPLuAOT(
 				policy, prefDataTrain,
 				refPolicy   = refPolicy if useRef else None,
@@ -239,6 +255,7 @@ def main():
 				lr          = cfg['lr'],
 				alpha       = cfg['alpha'],
 				gamma       = cfg['gamma'],
+				bias        = cfg['contrastive_bias'],
 				device      = device,
 				logInterval = cfg['log_interval'],
 				evaluator   = evaluator,
@@ -305,7 +322,7 @@ def main():
 	# ? Consider using the stochastic / Pareto dominance evaluation metrics from the PSD paper.
 
 	# save results to disk (into the same runDir as the tensorboard logs)
-	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, paotStats, uaotStats)
+	saveResults(runDir, policy, evalStats, prefStats, rollouts, args.method, configPath, cfg, paotStats, uaotStats)
 	if writer is not None:
 		writer.close()
 	print(f'\nresults saved → {runDir}')

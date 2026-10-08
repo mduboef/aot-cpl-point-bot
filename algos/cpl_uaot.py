@@ -59,17 +59,20 @@ import torch
 #   the i-th lowest preferred score is matched with the i-th lowest rejected score.
 #
 # Step 6 — CPL loss on OT-matched pairs:
-#   L(θ) = (1/n) Σ_i -log [ exp(u^(i)) / (exp(u^(i)) + exp(v^(i))) ]
-def uaot_loss(u, v):
+#   L(θ) = (1/n) Σ_i -log [ exp(u^(i)) / (exp(u^(i)) + exp(λ·v^(i))) ]
+# λ (bias) downweights the rejected score as in cpl_loss; λ = 1.0 is unbiased.
+# λ > 0 does not change the sort order, so sorting before scaling is equivalent.
+def uaot_loss(u, v, bias=1.0):
 	u_sorted = torch.sort(u).values
 	v_sorted = torch.sort(v).values
 
-	logit = u_sorted - v_sorted
+	logit = u_sorted - bias * v_sorted
 	# numerically stable: -log sigmoid(logit) = log(1 + exp(-logit))
 	max_val = torch.clamp(-logit, min=0)
 	loss = (torch.log(torch.exp(-max_val) + torch.exp(-logit - max_val)) + max_val).mean()
 
 	with torch.no_grad():
+		# accuracy uses the UNBIASED margin, matching cpl_loss
 		accuracy = (u_sorted > v_sorted).float().mean()
 
 	return loss, accuracy
@@ -189,6 +192,7 @@ def trainCPLuAOT(
 	refPolicy=None,
 	alpha=0.1,
 	gamma=1.0,
+	bias=1.0,
 	device='cpu',
 	logInterval=1000,
 	evaluator=None,
@@ -226,7 +230,7 @@ def trainCPLuAOT(
 		else:
 			u, v = posScores, negScores
 
-		loss, accuracy = uaot_loss(u, v)
+		loss, accuracy = uaot_loss(u, v, bias=bias)
 
 		optimizer.zero_grad(set_to_none=True)
 		loss.backward()

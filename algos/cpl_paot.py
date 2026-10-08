@@ -26,8 +26,10 @@ import torch
 # paot_loss
 # Formalization steps 5 and 6 of "CPL with pAOT" in finalReport.tex.
 #
-# u_theta: per-pair policy margins,    shape (n,) - u_θ^i = score(σ+; π_θ) - score(σ-; π_θ)
-# v_ref:   per-pair reference margins, shape (n,) - v_ref^i = score(σ+; π_ref) - score(σ-; π_ref)
+# u_theta: per-pair policy margins,    shape (n,) - u_θ^i = score(σ+; π_θ) - λ·score(σ-; π_θ)
+# v_ref:   per-pair reference margins, shape (n,) - v_ref^i = score(σ+; π_ref) - λ·score(σ-; π_ref)
+# (λ, the contrastive bias, is applied when the margins are built - see
+# computeRefMargins / _batchPolicyMargins - so this function is unchanged by it)
 #
 # Step 5 - sort both margin sets independently (1D optimal transport, northwest corner):
 #   u_θ^(1) ≤ u_θ^(2) ≤ ... ≤ u_θ^(n)
@@ -108,7 +110,10 @@ def _batchSegmentScores(policy, segObs, segAct, alpha, gamma):
 # all segments. Called once before training begins; π_ref is frozen so v_ref never
 # changes. Returns a float32 CPU tensor of shape (n,) for cheap random indexing
 # during the training loop.
-def computeRefMargins(refPolicy, cache, alpha, gamma, device):
+#
+# bias (λ) downweights the rejected-segment score: v_ref^i = score(σ+) - λ·score(σ-).
+# λ must match the one used for the policy margins so that u_θ = v_ref when π_θ = π_ref.
+def computeRefMargins(refPolicy, cache, alpha, gamma, device, bias=1.0):
 	refPolicy.eval()
 	segObs, segAct = [], []
 	for entry in cache:
@@ -122,16 +127,16 @@ def computeRefMargins(refPolicy, cache, alpha, gamma, device):
 	for i in range(len(cache)):
 		posScore = scores[2 * i]
 		negScore = scores[2 * i + 1]
-		vList.append((posScore - negScore).item())
+		vList.append((posScore - bias * negScore).item())
 
 	return torch.tensor(vList, dtype=torch.float32)  # (n,) CPU
 
 
 # _batchPolicyMargins
-# Compute u_theta^i = score(σ+; π_θ) - score(σ-; π_θ) for a batch of pairs.
+# Compute u_theta^i = score(σ+; π_θ) - λ·score(σ-; π_θ) for a batch of pairs.
 # Uses a single batched forward pass over all 2*batch_size segments.
 # Differentiable w.r.t. policy parameters.
-def _batchPolicyMargins(policy, cache, indices, alpha, gamma, device):
+def _batchPolicyMargins(policy, cache, indices, alpha, gamma, device, bias=1.0):
 	segObs, segAct = [], []
 	for idx in indices:
 		entry = cache[idx]
@@ -144,7 +149,7 @@ def _batchPolicyMargins(policy, cache, indices, alpha, gamma, device):
 	for i in range(len(indices)):
 		posScore = scores[2 * i]
 		negScore = scores[2 * i + 1]
-		uList.append(posScore - negScore)
+		uList.append(posScore - bias * negScore)
 
 	return torch.stack(uList)
 
@@ -157,7 +162,7 @@ def _batchPolicyMargins(policy, cache, indices, alpha, gamma, device):
 #
 # Key steps per training iteration:
 #   1. Sample a random mini-batch of batchSize preference pairs.
-#   2. Compute policy margins u_theta (differentiable) via one batched forward pass.
+#   2. Compute λ-biased policy margins u_theta (differentiable) via one batched forward pass.
 #   3. Index into pre-computed reference margins v_ref (no forward pass needed).
 #   4. Sort both independently (OT step 5), compute pAOT loss (step 6).
 #   5. Backpropagate and update π_θ.
@@ -170,6 +175,7 @@ def trainCPLpAOT(
 	lr,
 	alpha=0.1,
 	gamma=1.0,
+	bias=1.0,
 	device='cpu',
 	logInterval=1000,
 	evaluator=None,
@@ -182,7 +188,7 @@ def trainCPLpAOT(
 
 	# pre-compute all reference margins (π_ref is frozen, so these never change)
 	print(f'pre-computing reference margins for {n} pairs...')
-	vRefAll = computeRefMargins(refPolicy, cache, alpha, gamma, device)  # (n,) CPU
+	vRefAll = computeRefMargins(refPolicy, cache, alpha, gamma, device, bias=bias)  # (n,) CPU
 	print(f'  done')
 
 	policy = policy.to(device)
@@ -195,7 +201,7 @@ def trainCPLpAOT(
 		indices = np.random.randint(0, n, size=batchSize)
 
 		# compute policy margins (differentiable) for this batch
-		u_theta = _batchPolicyMargins(policy, cache, indices, alpha, gamma, device)
+		u_theta = _batchPolicyMargins(policy, cache, indices, alpha, gamma, device, bias=bias)
 
 		# retrieve pre-computed reference margins for this batch
 		v_ref = vRefAll[indices].to(device)
