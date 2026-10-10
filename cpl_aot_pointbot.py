@@ -37,67 +37,99 @@ if not __import__("os").path.isfile("models/REF_POLICY/policy.pt"):
 # %load_ext tensorboard
 # %tensorboard --logdir models
 
-# train all six methods at once, save each to Drive when it finishes
-import os, re, shutil, datetime, time
+# train every (method, bias) combination, save each run to Drive when it finishes
+import os, re, shutil, datetime, time, subprocess
 
-methods   = ["bc", "cpl", "cpl_biased", "cpl_paot", "cpl_uaot", "cpl_uaot_ref"]
-stamp     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+# train method once for every listed bias value
+methods   = {
+    "bc"            : [],   # empty vec -> no -bias flag
+    "cpl"           : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_paot"      : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_uaot"      : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_uaot_ref"  : [0.1, 0.25, 0.5, 0.75, 1.0],
+}
+
+# flatten into one job per run: (method, bias), bias=None means no -bias flag
+jobs = [(m, None if b is None else float(b)) for m, biases in methods.items() for b in (biases or [None])]
+
+stamp     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")   # timestamp used to differentate runs in drive
 driveRoot = f"/content/drive/MyDrive/UMass/CPL (Independent Study Fall 2026)/Distributional CPL/runs/{stamp}"
 logDir    = os.path.join(driveRoot, "logs")
 os.makedirs(logDir, exist_ok=True)
 
-# limit threads per process so 6 procs don't oversubscribe the CPU cores
-nCores  = os.cpu_count() or 8
-perProc = max(1, nCores // len(methods))
-env     = dict(os.environ, OMP_NUM_THREADS=str(perProc), MKL_NUM_THREADS=str(perProc))
+# cap concurrent runs so the procs don't oversubscribe the CPU cores (or RAM); extra jobs queue
+nCores      = os.cpu_count() or 8
+maxParallel = min(len(jobs), nCores)
+perProc     = max(1, nCores // maxParallel)
+env         = dict(os.environ, OMP_NUM_THREADS=str(perProc), MKL_NUM_THREADS=str(perProc))
+
+# label used for log files / printing, and the run dir tag train.py will create:
+# <METHOD>_<bias>_N for contrastive methods, <METHOD>_N for bc
+def jobLabel(m, bias):
+    return m if bias is None else f"{m}_{bias}"
+def jobTag(m, bias):
+    return m.upper() if bias is None else f"{m.upper()}_{bias}"
 
 before = set(os.listdir("models"))
 
-# launch all six concurrently; each streams its console output to its own log file in Drive
-procs, logs = {}, {}
-for m in methods:
-    lf = open(os.path.join(logDir, f"{m}.log"), "w")
-    procs[m] = subprocess.Popen(
-        ["python3", "-u", "train.py", "--method", m],
-        stdout=lf, stderr=subprocess.STDOUT, env=env)
-    logs[m] = lf
-    print(f"launched {m:14s} pid {procs[m].pid}  (OMP_NUM_THREADS={perProc})", flush=True)
+def launch(m, bias):
+    lf  = open(os.path.join(logDir, f"{jobLabel(m, bias)}.log"), "w")
+    cmd = ["python3", "-u", "train.py", "--method", m]
+    if bias is not None:
+        cmd += ["-bias", str(bias)]
+    p = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env)
+    print(f"launched {jobLabel(m, bias):24s} pid {p.pid}  (OMP_NUM_THREADS={perProc})", flush=True)
+    return p, lf
 
-# poll; as each finishes, copy its exact new run dir to Drive immediately
-saved, done = set(), set()
-while len(done) < len(methods):
+# launch up to maxParallel jobs at once; each streams its console output to its own log file in Drive
+# as each finishes, copy its exact new run dir to Drive immediately and start the next queued job
+pending = list(jobs)
+running = {}   # (m, bias) -> (proc, logFile)
+saved   = set()
+while pending or running:
+    while pending and len(running) < maxParallel:
+        job = pending.pop(0)
+        running[job] = launch(*job)
     time.sleep(15)
-    for m, p in procs.items():
-        if m in done or p.poll() is None:
+    for (m, bias), (p, lf) in list(running.items()):
+        if p.poll() is None:
             continue
-        logs[m].flush(); logs[m].close()
+        lf.flush(); lf.close()
+        label  = jobLabel(m, bias)
         status = "OK" if p.returncode == 0 else f"FAILED(rc={p.returncode})"
-        # match ONLY this method's dir: ^TAG_<digits>$  (so 'cpl' won't grab 'cpl_biased' etc.)
-        pat = re.compile(rf"^{m.upper()}_\d+$")
+        # match ONLY this method + bias: ^TAG_<digits>$  (so 'cpl' won't grab 'cpl_paot', 0.1 won't grab 0.15, etc.)
+        pat = re.compile(rf"^{re.escape(jobTag(m, bias))}_\d+$")
         new = [d for d in os.listdir("models")
                if d not in before and d not in saved and pat.match(d)]
         for d in new:
             shutil.copytree(os.path.join("models", d),
                             os.path.join(driveRoot, "models", d), dirs_exist_ok=True)
             saved.add(d)
-            print(f"[{m}] {status} → saved models/{d} to Drive", flush=True)
+            print(f"[{label}] {status} → saved models/{d} to Drive", flush=True)
         if not new:
-            print(f"[{m}] {status} but no new run dir found — check logs/{m}.log", flush=True)
-        done.add(m)
+            print(f"[{label}] {status} but no new run dir found — check logs/{label}.log", flush=True)
+        del running[(m, bias)]
 
 print("\nALL DONE →", driveRoot)
 
-# print final eval metrics for the 6 just-trained models
+# print final eval metrics for every just-trained (method, bias) run
 import os, re, json
 
-methods = ["bc", "cpl", "cpl_biased", "cpl_paot", "cpl_uaot", "cpl_uaot_ref"]
+# must match the methods dict in the training cell
+methods   = {
+    "bc"            : [],
+    "cpl"           : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_paot"      : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_uaot"      : [0.1, 0.25, 0.5, 0.75, 1.0],
+    "cpl_uaot_ref"  : [0.1, 0.25, 0.5, 0.75, 1.0],
+}
 
 split   = "test"  # held-out set; switch to "train" to see fit on training pairs
 
-# for each method pick the run dir created this session (highest N for the exact tag)
-def latestRunDir(method):
-    tag = method.upper()
-    pat = re.compile(rf"^{tag}_(\d+)$")
+# for each (method, bias) pick the run dir created this session (highest N for the exact tag)
+def latestRunDir(method, bias):
+    tag = method.upper() if bias is None else f"{method.upper()}_{float(bias)}"
+    pat = re.compile(rf"^{re.escape(tag)}_(\d+)$")
     if not os.path.exists("models"):
         return None
     matches = [
@@ -106,28 +138,31 @@ def latestRunDir(method):
     ]
     return os.path.join("models", max(matches)[1]) if matches else None
 
-header = ["Method", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate", "Avg Reward"]
+header = ["Method", "λ", "Orig-Pair Acc", "pAOT Loss", "pAOT Viol Rate", "uAOT Loss", "uAOT Viol Rate", "Avg Reward"]
 rows = []
-for m in methods:
-    runDir = latestRunDir(m)
-    if runDir is None:
-        rows.append([m, "no run dir", "", "", "", "", ""])
-        continue
-    with open(os.path.join(runDir, "eval_stats.json")) as f:
-        stats = json.load(f)
-    acc   = stats["preferenceAccuracy"][split]["overall"]
-    paot  = stats["paotLoss"][split]
-    uaot  = stats["uaotLoss"][split]
-    avgReward = sum(r["reward"] for r in stats["rollouts"]) / len(stats["rollouts"])
-    rows.append([
-        m,
-        f"{acc:.1%}",
-        f"{paot['paotLoss']:.4f}",
-        f"{paot['violationFreq']:.1%}",
-        f"{uaot['uaotLoss']:.4f}",
-        f"{uaot['violationFreq']:.1%}",
-        f"{avgReward:.1f}",
-    ])
+for m, biases in methods.items():
+    for bias in (biases or [None]):
+        biasStr = "-" if bias is None else str(float(bias))
+        runDir  = latestRunDir(m, bias)
+        if runDir is None:
+            rows.append([m, biasStr, "no run dir", "", "", "", "", ""])
+            continue
+        with open(os.path.join(runDir, "eval_stats.json")) as f:
+            stats = json.load(f)
+        acc   = stats["preferenceAccuracy"][split]["overall"]
+        paot  = stats["paotLoss"][split]
+        uaot  = stats["uaotLoss"][split]
+        avgReward = sum(r["reward"] for r in stats["rollouts"]) / len(stats["rollouts"])
+        rows.append([
+            m,
+            biasStr,
+            f"{acc:.1%}",
+            f"{paot['paotLoss']:.4f}",
+            f"{paot['violationFreq']:.1%}",
+            f"{uaot['uaotLoss']:.4f}",
+            f"{uaot['violationFreq']:.1%}",
+            f"{avgReward:.1f}",
+        ])
 
 # print table of eval metrics
 widths = [max(len(str(r[i])) for r in ([header] + rows)) for i in range(len(header))]

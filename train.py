@@ -23,15 +23,19 @@ def printAccuracy(label, acc):
 	print(f'  {label}: {acc["overall"]:.3f} overall  ({acc["nPairs"]} pairs)')
 
 
-def getRunDir(modelsDir, methodName):
-	# returns the next available models/<METHOD>_N path
-	tag = methodName.upper()
+def getRunDir(modelsDir, methodName, bias=None):
+	# returns the next available models/<METHOD>_N path, or models/<METHOD>_<λ>_N for
+	# contrastive methods, so N only increments across runs with the same method AND λ
+	tag = methodName.upper() if bias is None else f'{methodName.upper()}_{float(bias)}'
 	n = 1
-	while os.path.exists(os.path.join(modelsDir, f'{tag}_{n}')):
-		n += 1
-	runDir = os.path.join(modelsDir, f'{tag}_{n}')
-	os.makedirs(runDir)
-	return runDir
+	while True:
+		runDir = os.path.join(modelsDir, f'{tag}_{n}')
+		try:
+			# atomic claim, so concurrent launches can't grab the same N
+			os.makedirs(runDir)
+			return runDir
+		except FileExistsError:
+			n += 1
 
 
 def saveResults(runDir, policy, evalStats, prefStats, rollouts, methodName, configPath, cfg, paotStats=None, uaotStats=None):
@@ -127,7 +131,7 @@ def main():
 		runDir    = prepareRefDir(refPolicyDir)
 	else:
 		refPolicy = loadRefPolicy(refPolicyDir, obsDim, actDim, device)
-		runDir    = getRunDir(modelsDir, args.method)
+		runDir    = getRunDir(modelsDir, args.method, cfg.get('contrastive_bias'))
 
 
 	# TensorBoard evaluator: logs the eval-table metrics every eval_interval steps and the
