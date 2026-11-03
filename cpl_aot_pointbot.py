@@ -34,8 +34,13 @@ if not __import__("os").path.isfile("models/REF_POLICY/policy.pt"):
   subprocess.run(["python3", "train.py", "--method", "ref"], check=True)
 
 # Commented out IPython magic to ensure Python compatibility.
+# view TensorBoard logs saved to Drive (only the drive.mount cell needs to run first)
+# set tbStamp to a past run's timestamp folder, or None to use the local models/ dir from this session
+tbStamp = "20261010_001553"
+tbDir   = "models" if tbStamp is None else \
+          f"/content/drive/MyDrive/UMass/CPL (Independent Study Fall 2026)/Distributional CPL/runs/{tbStamp}/models"
 # %load_ext tensorboard
-# %tensorboard --logdir models
+# %tensorboard --logdir "$tbDir"
 
 # train every (method, bias) combination, save each run to Drive when it finishes
 import os, re, shutil, datetime, time, subprocess
@@ -100,7 +105,7 @@ while pending or running:
         # match ONLY this method + bias: ^TAG_<digits>$  (so 'cpl' won't grab 'cpl_paot', 0.1 won't grab 0.15, etc.)
         pat = re.compile(rf"^{re.escape(jobTag(m, bias))}_\d+$")
         new = [d for d in os.listdir("models")
-               if d not in before and d not in saved and pat.match(d)]
+                if d not in before and d not in saved and pat.match(d)]
         for d in new:
             shutil.copytree(os.path.join("models", d),
                             os.path.join(driveRoot, "models", d), dirs_exist_ok=True)
@@ -112,6 +117,7 @@ while pending or running:
 
 print("\nALL DONE →", driveRoot)
 
+# print final eval metrics for the 6 just-trained models
 # print final eval metrics for every just-trained (method, bias) run
 import os, re, json
 

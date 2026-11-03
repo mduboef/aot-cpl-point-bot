@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from env.pointbot_const import OBSTACLE, MODE, START_POS, END_POS
 
 DATA_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-GREY_WEIGHT = 160.0
+GREY_WEIGHT = 175.0
 DIST_WEIGHT = 1.0
 DEMO_TYPES  = range(1, 6)
 
@@ -94,11 +94,11 @@ def printRanking(items, split):
 		byType.setdefault(item['type'], []).append(item['reward'])
 
 	print(f'\n  Per-type reward summary ({split}):')
-	print(f'  {"type":>5}  {"count":>6}  {"best":>10}  {"mean":>10}  {"worst":>10}')
-	print(f'  {"─"*5}  {"─"*6}  {"─"*10}  {"─"*10}  {"─"*10}')
+	print(f'  {"type":>5}  {"count":>6}  {"best":>10}  {"mean":>10}  {"median":>10}  {"std dev":>10}  {"worst":>10}')
+	print(f'  {"─"*5}  {"─"*6}  {"─"*10}  {"─"*10}  {"─"*10}  {"─"*10}')
 	for t in sorted(byType):
 		vals = byType[t]
-		print(f'  {t:>5}  {len(vals):>6}  {max(vals):>10.1f}  {np.mean(vals):>10.1f}  {min(vals):>10.1f}')
+		print(f'  {t:>5}  {len(vals):>6}  {max(vals):>10.1f}  {np.mean(vals):>10.1f}  {np.median(vals):>10.1f}  {np.std(vals):>10.1f}  {min(vals):>10.1f}')
 
 
 def drawObstacles(ax):
