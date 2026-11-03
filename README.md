@@ -146,18 +146,17 @@ Next Steps:
             - CPLpAOT
 
     4. DONE - Add bias reguarlization term (λ) to distributional CPL objective function
-    5. Train methods with different regularization values (λ)
+    5. DONE - Train methods with different regularization values (λ)
         Method              Set of λ Values
         "bc"            :   []
         "cpl"           :   [0.1, 0.25, 0.5, 0.75, 1.0]
         "cpl_paot"      :   [0.1, 0.25, 0.5, 0.75, 1.0]
         "cpl_uaot"      :   [0.1, 0.25, 0.5, 0.75, 1.0]
         "cpl_uaot_ref"  :   [0.1, 0.25, 0.5, 0.75, 1.0]
-    6. Clean up algo code for readability
-    7. Double check pAOT and uAOT eval code (λ=1 for these evals)
-    8. Tweak system to induce preference collapse in CPL and demonstrate pluralistic rollouts with distributional CPL
-        - Tweak the reward function used to generate preference pairs
-        - Try different λ values from 0.1 to 0.5
+    6. Train methods different preference datasets, each with its own latent latent reward function
+        - Goal is to induce strongly preference collapse in baseline CPL
+    7. Clean up algo code for readability
+    8. Double check pAOT and uAOT eval code (λ=1 for these evals)
     9. Test methods with many different starting seeds
 
 
