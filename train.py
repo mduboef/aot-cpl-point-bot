@@ -23,10 +23,13 @@ def printAccuracy(label, acc):
 	print(f'  {label}: {acc["overall"]:.3f} overall  ({acc["nPairs"]} pairs)')
 
 
-def getRunDir(modelsDir, methodName, bias=None):
+def getRunDir(modelsDir, methodName, bias=None, dataset=None):
 	# returns the next available models/<METHOD>_N path, or models/<METHOD>_<λ>_N for
 	# contrastive methods, so N only increments across runs with the same method AND λ
+	# TEMP (step 6): a -data run gets the dataset id appended, e.g. models/CPL_0.75_180_N
 	tag = methodName.upper() if bias is None else f'{methodName.upper()}_{float(bias)}'
+	if dataset is not None:
+		tag += f'_{dataset}'
 	n = 1
 	while True:
 		runDir = os.path.join(modelsDir, f'{tag}_{n}')
@@ -76,7 +79,11 @@ def main():
 		choices=['ref', 'bc', 'cpl', 'cpl_biased', 'cpl_paot', 'cpl_uaot', 'cpl_uaot_ref'])
 	# optional override of the config's contrastive_bias (λ), e.g. --method cpl_paot -bias 0.3
 	parser.add_argument('-bias', '--bias', type=float, default=None)
+	# TEMP (step 6): optional preference dataset id, e.g. -data 180 trains on trainPreferences180.pkl,
+	# evaluates on testPreferences180.pkl, and uses models/REF_POLICY_180/ as π_ref
+	parser.add_argument('-data', '--dataset', type=int, default=None)
 	args = parser.parse_args()
+	dataSuffix = '' if args.dataset is None else str(args.dataset)
 
 	scriptDir  = os.path.dirname(os.path.abspath(__file__))
 	configPath = os.path.join(scriptDir, 'configs', f'{args.method}.yaml')
@@ -94,13 +101,13 @@ def main():
 
 
 	# read in training set of preference pairs
-	prefPathTrain = os.path.join(scriptDir, 'data', 'trainingData', 'trainPreferences.pkl')
+	prefPathTrain = os.path.join(scriptDir, 'data', 'trainingData', f'trainPreferences{dataSuffix}.pkl')
 	with open(prefPathTrain, 'rb') as f:
 		prefDataTrain = pickle.load(f)
 	print(f'loaded {len(prefDataTrain)} preference pairs')
 
 	# read in testing set of preference pairs
-	prefPathTest = os.path.join(scriptDir, 'data', 'testingData', 'testPreferences.pkl')
+	prefPathTest = os.path.join(scriptDir, 'data', 'testingData', f'testPreferences{dataSuffix}.pkl')
 	with open(prefPathTest, 'rb') as f:
 		prefDataTest = pickle.load(f)
 	print(f'loaded {len(prefDataTest)} preference pairs')
@@ -125,13 +132,13 @@ def main():
 	# reference policy lives in models/REF_POLICY/ and is only (re)trained by --method ref
 	# every other method loads it, erroring out before a run dir is created if it's missing
 	modelsDir    = os.path.join(scriptDir, 'models')
-	refPolicyDir = os.path.join(modelsDir, 'REF_POLICY')
+	refPolicyDir = os.path.join(modelsDir, 'REF_POLICY' if args.dataset is None else f'REF_POLICY_{args.dataset}')
 	if args.method == 'ref':
 		refPolicy = None
 		runDir    = prepareRefDir(refPolicyDir)
 	else:
 		refPolicy = loadRefPolicy(refPolicyDir, obsDim, actDim, device)
-		runDir    = getRunDir(modelsDir, args.method, cfg.get('contrastive_bias'))
+		runDir    = getRunDir(modelsDir, args.method, cfg.get('contrastive_bias'), args.dataset)
 
 
 	# TensorBoard evaluator: logs the eval-table metrics every eval_interval steps and the
