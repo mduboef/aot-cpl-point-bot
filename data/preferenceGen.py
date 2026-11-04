@@ -13,7 +13,7 @@ import numpy as np
 # (demo types 1/2/3) within ~5% of each other while types 4/5 are clearly worse and rejected.
 
 WHITE_WEIGHT = 0.0
-GREY_WEIGHT = 175.0
+GREY_WEIGHT = 205.0
 DIST_WEIGHT = 1.0
 
 DEMO_TYPES = range(1, 6)

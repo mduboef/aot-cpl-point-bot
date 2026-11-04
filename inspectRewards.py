@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from env.pointbot_const import OBSTACLE, MODE, START_POS, END_POS
 
 DATA_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-GREY_WEIGHT = 175.0
+GREY_WEIGHT = 215.0
 DIST_WEIGHT = 1.0
 DEMO_TYPES  = range(1, 6)
 
