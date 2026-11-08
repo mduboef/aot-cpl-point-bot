@@ -13,10 +13,14 @@ import numpy as np
 # (demo types 1/2/3) within ~5% of each other while types 4/5 are clearly worse and rejected.
 
 WHITE_WEIGHT = 0.0
-GREY_WEIGHT = 205.0
+GREY_WEIGHT = 185.0
 DIST_WEIGHT = 1.0
 
-DEMO_TYPES = range(1, 6)
+DEMO_TYPES = range(1, 7)
+
+# pairs are only formed across these two groups (never within a group)
+DOMINANT_TYPES    = {1, 2}
+NONDOMINANT_TYPES = {3, 4, 5, 6}
 
 
 # single-annotator reward on raw features; white_steps gets no weight
@@ -76,15 +80,18 @@ def loadDemos(dataDir, splitDir):
 	return items
 
 
-# builds hard-labeled preference pairs over the whole pool (every unordered pair); the
-# higher-reward demo is the preferred (pos) one. exact reward ties are skipped.
+# builds hard-labeled preference pairs between every dominant demo and every non-dominant
+# demo (no within-group pairs); the higher-reward demo is the preferred (pos) one, so a
+# non-dominant demo can win. exact reward ties are skipped.
 def generatePairs(items):
+	dominant    = [it for it in items if it['type'] in DOMINANT_TYPES]
+	nonDominant = [it for it in items if it['type'] in NONDOMINANT_TYPES]
 	pairs = []
-	for a, b in itertools.combinations(range(len(items)), 2):
-		if items[a]['reward'] > items[b]['reward']:
-			posItem, negItem = items[a], items[b]
-		elif items[b]['reward'] > items[a]['reward']:
-			posItem, negItem = items[b], items[a]
+	for a, b in itertools.product(dominant, nonDominant):
+		if a['reward'] > b['reward']:
+			posItem, negItem = a, b
+		elif b['reward'] > a['reward']:
+			posItem, negItem = b, a
 		else:
 			continue  # skip exact ties
 

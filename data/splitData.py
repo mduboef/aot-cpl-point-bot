@@ -10,7 +10,7 @@ trainingDir = os.path.join(baseDir, "trainingData")
 testingDir = os.path.join(baseDir, "testingData")
 
 # demo types to split
-demoTypes = ["1", "2", "3", "4", "5"]
+demoTypes = ["6"]
 
 # fixed seed so the split is reproducible across runs
 randomSeed = 42
