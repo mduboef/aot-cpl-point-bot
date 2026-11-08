@@ -117,21 +117,26 @@ def drawObstacles(ax):
 		ax.add_patch(rect)
 
 
-# plots all demos colored green→white→red by reward rank (not raw reward value)
-def plotRankedRollouts(items, split, savePath):
-	ranked = sorted(items, key=lambda x: x['reward'], reverse=True)
-	n = len(ranked)
+# plots all demos colored red→white→green by min-max normalized reward (best = 1, worst = 0)
+def plotRankedRollouts(items, split, demoTypesPlotted, savePath):
 
-	cmap = mcolors.LinearSegmentedColormap.from_list('ranked', ['green', 'whitesmoke', 'red'])
+	# normalize demo rewards to [0, 1]
+	n = len(items)			# all item used for setting normalization
+	rewards = np.array([item['reward'] for item in items], dtype=float)
+	minReward, maxReward = rewards.min(), rewards.max()
+	rewardRange = maxReward - minReward
+	normalizedRewards = (rewards - minReward) / rewardRange if rewardRange > 0 else np.ones_like(rewards)
+	cmap = mcolors.LinearSegmentedColormap.from_list('normalized', ['red', 'whitesmoke', 'green'])
 
 	fig, ax = plt.subplots(figsize=(10, 10))
 	drawObstacles(ax)
 
-	for rank, item in enumerate(ranked):
-		normalizedRank = rank / max(n - 1, 1)
-		color = cmap(normalizedRank)
-		states = item['states']
-		ax.plot(states[:, 0], states[:, 2], color=color, linewidth=1.4, alpha=0.85, zorder=3)
+	for item, normalizedReward in zip(items, normalizedRewards):
+		# only plot line if item type is in demoTypesPlotted
+		if item['type'] in demoTypesPlotted:
+			color = cmap(normalizedReward)
+			states = item['states']
+			ax.plot(states[:, 0], states[:, 2], color=color, linewidth=1.4, alpha=0.85, zorder=3)
 
 	ax.scatter(START_POS[0], START_POS[1], c='green', s=140, zorder=6, marker='o', label='Start')
 	ax.scatter(END_POS[0], END_POS[1], c='red', s=140, zorder=6, marker='o', label='Goal')
@@ -149,16 +154,16 @@ def plotRankedRollouts(items, split, savePath):
 	ax.set_xlim(minX - padding, maxX + padding)
 	ax.set_ylim(minY - padding, maxY + padding)
 
-	sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=1, vmax=n))
+	sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=0, vmax=1))
 	sm.set_array([])
 	cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
-	cbar.set_label('rank (1 = best reward)', fontsize=9)
-	cbar.set_ticks([1, (n + 1) // 2, n])
-	cbar.set_ticklabels(['best', 'median', 'worst'])
+	cbar.set_label('normalized reward (1 = best, 0 = worst)', fontsize=9)
+	cbar.set_ticks([0, 0.5, 1])
+	cbar.set_ticklabels([f'0 ({minReward:.1f})', '0.5', f'1 ({maxReward:.1f})'])
 
 	ax.set_xlabel('x position')
 	ax.set_ylabel('y position')
-	ax.set_title(f'{split.capitalize()} Demos Colored by Reward Rank ({n} demos)')
+	ax.set_title(f'{split.capitalize()} Demos Colored by Normalized Reward ({n} demos)')
 	ax.legend(fontsize=8, loc='upper right')
 	ax.set_aspect('equal')
 	ax.grid(True, alpha=0.25)
@@ -179,7 +184,10 @@ def main():
 	items = loadDemos(DATA_DIR, splitDir)
 	printRanking(items, args.split)
 	savePath = os.path.join(os.path.dirname(DATA_DIR), 'demoPlots', f'rankedRollouts_{args.split}.png')
-	plotRankedRollouts(items, args.split, savePath)
+
+	demoTypesPlotted = [1,2,4,5,6]
+
+	plotRankedRollouts(items, args.split, demoTypesPlotted, savePath)
 
 
 if __name__ == '__main__':
