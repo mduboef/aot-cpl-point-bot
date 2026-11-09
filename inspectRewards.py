@@ -13,9 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from env.pointbot_const import OBSTACLE, MODE, START_POS, END_POS
 
 DATA_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-GREY_WEIGHT = 185.0
+GREY_WEIGHT = 190.0
 DIST_WEIGHT = 1.0
-DEMO_TYPES  = range(1, 7)
+DEMO_TYPES  = [1,2,6]
 
 # maps the command-line split argument to the directory holding that split's demos
 SPLIT_DIRS = {
@@ -185,7 +185,7 @@ def main():
 	printRanking(items, args.split)
 	savePath = os.path.join(os.path.dirname(DATA_DIR), 'demoPlots', f'rankedRollouts_{args.split}.png')
 
-	demoTypesPlotted = [1,2,4,5,6]
+	demoTypesPlotted = [1,2,6]
 
 	plotRankedRollouts(items, args.split, demoTypesPlotted, savePath)
 

@@ -13,14 +13,14 @@ import numpy as np
 # (demo types 1/2/3) within ~5% of each other while types 4/5 are clearly worse and rejected.
 
 WHITE_WEIGHT = 0.0
-GREY_WEIGHT = 220.0
+GREY_WEIGHT = 210.0
 DIST_WEIGHT = 1.0
 
-DEMO_TYPES = range(1, 7)
+DEMO_TYPES = [1,2,6]
 
 # pairs are only formed across these two groups (never within a group)
 DOMINANT_TYPES    = {1, 2}
-NONDOMINANT_TYPES = {4, 5, 6}
+NONDOMINANT_TYPES = {6}
 
 
 # single-annotator reward on raw features; white_steps gets no weight
