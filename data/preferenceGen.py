@@ -16,11 +16,15 @@ WHITE_WEIGHT = 0.0
 GREY_WEIGHT = 210.0
 DIST_WEIGHT = 1.0
 
-DEMO_TYPES = [1,2,6]
+# pairing modes:
+#   NONDOMINANT_TYPES non-empty -> pairs only across the two groups (dominant x non-dominant)
+#   NONDOMINANT_TYPES empty     -> every unordered pair of distinct demos among DOMINANT_TYPES,
+#                                  including same-type pairs (1&1, 1&2, ..., 6&6)
+DOMINANT_TYPES    = {1, 2, 6}
+NONDOMINANT_TYPES = set()
 
-# pairs are only formed across these two groups (never within a group)
-DOMINANT_TYPES    = {1, 2}
-NONDOMINANT_TYPES = {6}
+# only load the corridor types that participate in pairing
+DEMO_TYPES = sorted(set(DOMINANT_TYPES) | set(NONDOMINANT_TYPES))
 
 
 # single-annotator reward on raw features; white_steps gets no weight
@@ -80,14 +84,22 @@ def loadDemos(dataDir, splitDir):
 	return items
 
 
-# builds hard-labeled preference pairs between every dominant demo and every non-dominant
-# demo (no within-group pairs); the higher-reward demo is the preferred (pos) one, so a
-# non-dominant demo can win. exact reward ties are skipped.
+# builds hard-labeled preference pairs; the higher-reward demo is the preferred (pos) one,
+# so a non-dominant demo can win. exact reward ties are skipped.
+#   NONDOMINANT_TYPES non-empty -> every dominant demo x every non-dominant demo
+#   NONDOMINANT_TYPES empty     -> every unordered pair of distinct dominant demos (each once)
 def generatePairs(items):
 	dominant    = [it for it in items if it['type'] in DOMINANT_TYPES]
 	nonDominant = [it for it in items if it['type'] in NONDOMINANT_TYPES]
+	if NONDOMINANT_TYPES:
+		candidates = itertools.product(dominant, nonDominant)
+	else:
+		candidates = itertools.combinations(dominant, 2)
+
 	pairs = []
-	for a, b in itertools.product(dominant, nonDominant):
+	for a, b in candidates:
+		if a is b:
+			continue  # never pair a demo with itself (possible if the groups overlap)
 		if a['reward'] > b['reward']:
 			posItem, negItem = a, b
 		elif b['reward'] > a['reward']:
@@ -131,8 +143,8 @@ def main():
 
 	# (split label, source dir under dataDir, output preference filename)
 	splits = [
-		('train', 'trainingData', 'trainPreferences.pkl'),
-		('test',  'testingData',  'testPreferences.pkl'),
+		('train', 'trainingData', f'trainPreferences{int(GREY_WEIGHT)}.pkl'),
+		('test',  'testingData',  f'testPreferences{int(GREY_WEIGHT)}.pkl'),
 	]
 
 	for split, splitDir, outName in splits:
